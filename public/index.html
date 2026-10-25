@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>みんなで運べ！ 2〜8人で巨大な荷物を運ぶ協力ゲーム</title>
+<meta name="description" content="全員で1つの荷物を持って、狭いドアや穴のあるコースをゴールまで運ぶ協力ゲーム。押す向きがそろわないと回る、引っぱると裂ける。スマホで2〜8人。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="みんなで運べ！">
+<meta property="og:description" content="全員で1つの荷物を持って、ドアと穴と柱のコースを運びきれ。押す向きがそろわないと回る、引っぱると裂ける。スマホで2〜8人。">
+<meta property="og:image" content="/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1b1d22">
+<link rel="stylesheet" href="/style.css">
+<script>
+  // 起動に失敗したときに原因を画面に出す（module の読み込み自体が失敗すると中の catch は動かないため、素の script で拾う）
+  window.__errs = []
+  window.addEventListener('error', e => window.__errs.push(e.message || String(e)))
+  window.addEventListener('unhandledrejection', e => window.__errs.push(String(e.reason)))
+  setTimeout(() => {
+    if (window.__boot) return
+    const d = document.getElementById('bootErr')
+    d.hidden = false
+    d.textContent = '起動できませんでした: ' + (window.__errs.join(' / ') || '読み込み失敗') + ' / ' + navigator.userAgent
+  }, 5000)
+  // ブラウザの拡大を止める（iOS は viewport の指定を無視するため）
+  ;(function () {
+    const stop = e => e.preventDefault()
+    for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, stop, { passive: false })
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault() }, { passive: false })
+    let lastEnd = 0
+    document.addEventListener('touchend', e => {
+      const now = Date.now()
+      if (now - lastEnd < 350 && !e.target.closest('input, button, summary, label, a')) e.preventDefault()
+      lastEnd = now
+    }, { passive: false })
+    document.addEventListener('dblclick', stop, { passive: false })
+    document.addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault() }, { passive: false })
+    document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault() })
+  })()
+</script>
+</head>
+<body>
+<div id="bootErr" class="boot-err" hidden></div>
+
+<header class="top">
+  <span class="logo" id="logo"><svg viewBox="0 0 32 20" aria-hidden="true"><rect x="5" y="4" width="22" height="12" rx="2" fill="#e0703e"/><circle cx="3.5" cy="10" r="3" fill="#ffcf3a"/><circle cx="28.5" cy="10" r="3" fill="#5ad1ff"/><circle cx="16" cy="1.8" r="1.8" fill="#ff7aa8"/><circle cx="16" cy="18.2" r="1.8" fill="#8be36b"/></svg>みんなで運べ！</span>
+  <span class="net" id="net" data-s="connecting">接続しています</span>
+</header>
+
+<main>
+  <section id="home" class="card" hidden>
+    <h1 id="homeTitle">みんなで運べ！</h1>
+    <p id="homeLead" class="lead">全員で1つの大きな荷物を持って、ゴールまで運ぶ。押す向きがそろわないと回り出す。</p>
+    <label class="field">ニックネーム
+      <input id="name" maxlength="12" autocomplete="nickname" placeholder="例: たろう" enterkeyhint="done">
+    </label>
+    <button id="createBtn" class="primary">部屋を作る</button>
+    <details id="joinBox">
+      <summary>参加コードで入る</summary>
+      <div class="row">
+        <input id="code" maxlength="4" inputmode="latin" autocapitalize="characters" placeholder="ABCD" aria-label="参加コード">
+        <button id="joinBtn">参加</button>
+      </div>
+    </details>
+    <div id="howto" class="howto">
+      <p class="howto-h">遊び方（2〜8人・1回2分）</p>
+      <ol>
+        <li>1人ずつ荷物の持ち手が決まる（前・後ろ・左・右…）</li>
+        <li>スティックで自分の持ち手を押す。全員の力を足した向きに進む</li>
+        <li>ばらばらに押すと回る。外へ引っぱり合うと荷物が裂ける</li>
+        <li>壁に強くぶつけると傷む。真ん中の印が穴に入ると落ちる</li>
+        <li>120秒以内にゴールへ。声をかけ合って運ぶ</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="lobby" class="card" hidden>
+    <div class="lobby-top">
+      <div><p class="muted">参加コード</p><p class="code" id="roomCode"></p></div>
+      <p class="muted"><span id="count"></span></p>
+    </div>
+    <div class="row">
+      <input id="invite" readonly aria-label="招待URL">
+      <button id="copyBtn">招待</button>
+    </div>
+    <ul id="players" class="players"></ul>
+    <div id="setup" class="setup">
+      <p class="muted">コース: <b id="courseName"></b></p>
+      <div class="choice" id="cargoChoice" role="radiogroup" aria-label="荷物"></div>
+    </div>
+    <p id="lobbyHint" class="hint"></p>
+    <button id="startBtn" class="primary" hidden>スタート</button>
+    <button id="leaveBtn" class="ghost">部屋を出る</button>
+  </section>
+
+  <section id="game" hidden>
+    <div id="stage" class="stage"></div>
+    <button id="quitBtn" class="ghost small quit">退出</button>
+  </section>
+
+  <section id="result" class="card" hidden>
+    <h2 id="resultTitle" class="result-title"></h2>
+    <div id="resultBody"></div>
+    <p id="resultHint" class="hint"></p>
+    <div class="row">
+      <button id="rematchBtn" class="primary grow" hidden>もう一回</button>
+      <button id="lobbyBtn" class="ghost" hidden>ロビーへ</button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<footer class="foot"><span id="ping"></span></footer>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

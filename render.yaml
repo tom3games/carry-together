@@ -1,0 +1,10 @@
+# Render（https://render.com）の Blueprint。リポジトリをつなぐと、このフォルダ1つが1つの Web サービスになる。
+# 無料プランは15分アクセスが無いと眠り、次の接続で起きるまで数十秒かかる。常時起動は有料（2026-10 時点の料金は公式で確認すること）。
+services:
+  - type: web
+    name: carry-together
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: node server.mjs
+    healthCheckPath: /healthz
