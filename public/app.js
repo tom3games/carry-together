@@ -214,4 +214,5 @@ $('#howto').onclick = e => { if (e.target.id === 'howto') $('#howto').hidden = t
 addEventListener('keydown', e => { if (e.key === 'Escape') $('#howto').hidden = true })
 
 window.__boot = true
+{ const d = document.getElementById('bootErr'); if (d) d.hidden = true } // 遅れて起動できたときは誤報を消す
 show('home')

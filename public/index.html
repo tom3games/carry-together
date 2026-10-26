@@ -23,12 +23,15 @@
   window.__errs = []
   window.addEventListener('error', e => window.__errs.push(e.message || String(e)))
   window.addEventListener('unhandledrejection', e => window.__errs.push(String(e.reason)))
-  setTimeout(() => {
+  // 遅い回線では 3D の読み込みに時間がかかるので、エラーが出たとき（8秒）か、20秒たっても起動しないときだけ出す。後から起動できたら app.js が消す
+  const showBootErr = () => {
     if (window.__boot) return
     const d = document.getElementById('bootErr')
     d.hidden = false
     d.textContent = '起動できませんでした: ' + (window.__errs.join(' / ') || '読み込み失敗') + ' / ' + navigator.userAgent
-  }, 5000)
+  }
+  setTimeout(() => { if (window.__errs.length) showBootErr() }, 8000)
+  setTimeout(showBootErr, 20000)
   // ブラウザの拡大を止める（iOS は viewport の指定を無視するため）
   ;(function () {
     const stop = e => e.preventDefault()
