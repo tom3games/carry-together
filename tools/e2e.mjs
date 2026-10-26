@@ -12,7 +12,16 @@ const srv = await startServer({ port: 0, quiet: true })
 const base = `http://localhost:${srv.port}`
 let fail = 0
 const check = (ok, label) => { console.log(ok ? 'OK  ' : 'NG  ', label); if (!ok) fail++ }
-const SIZES = [[390, 844], [360, 640], [844, 390]]
+const SIZES = [[390, 844], [360, 640], [844, 390], [568, 320]]
+const COURSE = process.env.COURSE || 'crosswalk' // 動く障害物のあるコースで通す
+// 選択欄の矢印を押して目当てのものにする
+async function choose(page, kind, id) {
+  for (let i = 0; i < 8; i++) {
+    if (await page.getAttribute(`#${kind}Pick .pk-body`, 'data-id') === id) return
+    await page.click(`#${kind}Pick .pk-btn[data-d="1"]`)
+  }
+  throw new Error(`${kind} ${id} を選べない`)
+}
 
 // 画面が一画面に収まり、見えているボタンが画面の中にあり、44px 以上あるか
 async function fits(page, label) {
@@ -70,11 +79,13 @@ for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
   }
   await host.waitForFunction(() => document.querySelectorAll('#players li').length === 3)
   check(true, `${bname}: 3人がロビーにそろう`)
-  check(await g1.isHidden('#cargoChoice'), `${bname}: 荷物を選べるのはホストだけ`)
-  await host.click('#cargoChoice .opt[data-id="tank"]')
-  await host.click('#cargoChoice .opt[data-id="sofa"]')
-  check(await host.getAttribute('#cargoChoice .opt[data-id="sofa"]', 'aria-checked') === 'true', `${bname}: 荷物を選べる`)
+  check(await g1.isHidden('#cargoPick .pk-btn'), `${bname}: 荷物とコースを選べるのはホストだけ`)
+  await choose(host, 'cargo', 'tank'); await choose(host, 'cargo', 'sofa')
+  await choose(host, 'course', COURSE)
+  check(await host.getAttribute('#cargoPick .pk-body', 'data-id') === 'sofa', `${bname}: 荷物を選べる`)
+  await g1.waitForFunction(c => document.querySelector('#coursePick .pk-body')?.dataset.id === c, COURSE, { timeout: 3000 }).then(() => check(true, `${bname}: ホストが選んだコースが参加者にも見える`), () => check(false, `${bname}: 参加者にコースが届かない`))
   await fits(host, `${bname}-lobby`)
+  await fits(g1, `${bname}-lobby-guest`)
   await host.click('#startBtn')
   await g1.waitForSelector('#game:not([hidden])')
   check(true, `${bname}: ゲームが始まる`)
@@ -85,6 +96,13 @@ for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
   const mes = await Promise.all([host, g1, g2].map(p => p.evaluate(() => window.__ct.view().me)))
   check(new Set(mes).size === 3, `${bname}: 3人の持ち手が別々 ${mes}`)
   await play.checkRealInput([host, g1], check, bname)
+  // かけ声: ボタンを押すと全員の画面に吹き出しが出る
+  await host.locator('.em-btn[data-k="0"]').dispatchEvent('pointerdown')
+  await g2.waitForFunction(() => (window.__ct.view().em || []).some(e => e[1] === 0), null, { timeout: 3000 }).then(() => check(true, `${bname}: かけ声ボタンが全員に届く`), () => check(false, `${bname}: かけ声が届かない`))
+  await g1.keyboard.press('Digit6')
+  await host.waitForFunction(() => (window.__ct.view().em || []).some(e => e[1] === 5), null, { timeout: 3000 }).then(() => check(true, `${bname}: 数字キーでもかけ声を出せる`), () => check(false, `${bname}: 数字キーのかけ声が届かない`))
+  await host.waitForTimeout(300)
+  await host.screenshot({ path: `${SHOTS}${bname}-emote.png` })
   // 盤面が描けているか（ほぼ単色なら描けていない）
   const variance = await host.evaluate(() => {
     const c = document.querySelector('#g-cv'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
@@ -97,9 +115,16 @@ for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
     await host.screenshot({ path: `${SHOTS}${bname}-game.png` })
     await fits(g1, `${bname}-game`)
   } })
-  await g1.waitForSelector('#result:not([hidden])', { timeout: 60000 })
+  await g1.waitForSelector('#result:not([hidden])', { timeout: 90000 })
   const title = await g1.textContent('#resultTitle')
   check(title === '到着！', `${bname}: 3人でゴールまで運べて結果画面が出る（${title}）`)
+  const medal = await g1.getAttribute('.medal', 'data-m').catch(() => null)
+  check(['gold', 'silver', 'bronze'].includes(medal), `${bname}: メダルが出る（${medal}）`)
+  check(/自己ベスト|初めて/.test(await g1.textContent('.res-best')), `${bname}: 自己ベストが出る`)
+  await g1.waitForTimeout(900) // メダルの登場アニメが終わってから
+  const mw = await g1.evaluate(() => document.querySelector('.medal').getBoundingClientRect().width)
+  check(mw >= 40, `${bname}: メダルが小さくつぶれていない（幅 ${Math.round(mw)}px）`)
+  await g1.screenshot({ path: `${SHOTS}${bname}-result.png` })
   await fits(g2, `${bname}-result`)
   await host.waitForSelector('#result:not([hidden])')
   check(await g1.isHidden('#rematchBtn'), `${bname}: 再戦ボタンはホストだけ`)
@@ -129,7 +154,7 @@ for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
   await host.waitForFunction(() => document.querySelectorAll('#players li').length === 8)
   check(true, 'webkit 8人: ロビーにそろう')
   await fits(host, 'webkit8-lobby')
-  await host.click('#cargoChoice .opt[data-id="tank"]')
+  await choose(host, 'cargo', 'tank')
   await host.click('#startBtn')
   await host.waitForFunction(() => window.__ct && window.__ct.view() && window.__ct.view().cd === 0, null, { timeout: 10000 })
   const mes = await Promise.all(pages.map(p => p.evaluate(() => window.__ct.view().me)))

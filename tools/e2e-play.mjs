@@ -32,7 +32,7 @@ export async function playToEnd(pages, { shot } = {}) {
   for (const p of pages) mine.push((await view(p)).me)
   const t0 = Date.now()
   let shotDone = false
-  while (Date.now() - t0 < 110000) {
+  while (Date.now() - t0 < 170000) {
     const v = await view(host)
     if (!v || await host.evaluate(() => document.querySelector('#result') && !document.querySelector('#result').hidden)) break
     const ins = pilot.inputs(v)

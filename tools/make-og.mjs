@@ -35,8 +35,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" v
 <text x="56" y="300" font-size="92" font-weight="900" fill="#f0a040" font-family="Hiragino Sans, Noto Sans JP, sans-serif">運べ！</text>
 <text x="58" y="378" font-size="34" font-weight="700" fill="#f4f1ea" font-family="Hiragino Sans, Noto Sans JP, sans-serif">2〜8人で巨大な荷物を運ぶ</text>
 <text x="58" y="426" font-size="34" font-weight="700" fill="#f4f1ea" font-family="Hiragino Sans, Noto Sans JP, sans-serif">協力ゲーム</text>
-<text x="58" y="500" font-size="26" fill="#a9adb6" font-family="Hiragino Sans, Noto Sans JP, sans-serif">押す向きがそろわないと回る。</text>
-<text x="58" y="540" font-size="26" fill="#a9adb6" font-family="Hiragino Sans, Noto Sans JP, sans-serif">引っぱると裂ける。スマホでリンクから参加。</text>
+<text x="58" y="500" font-size="26" fill="#a9adb6" font-family="Hiragino Sans, Noto Sans JP, sans-serif">車道・雪の橋・工場・階段など5コース。</text>
+<text x="58" y="540" font-size="26" fill="#a9adb6" font-family="Hiragino Sans, Noto Sans JP, sans-serif">声をかけ合って運べ。リンクから参加。</text>
 </svg>`
 const b = await chromium.launch()
 const p = await b.newPage({ viewport: { width: 1200, height: 630 } })

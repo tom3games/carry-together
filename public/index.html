@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>みんなで運べ！ 2〜8人で巨大な荷物を運ぶ協力ゲーム</title>
-<meta name="description" content="全員で1つの荷物を持って、狭いドアや穴のあるコースをゴールまで運ぶ協力ゲーム。押す向きがそろわないと回る、引っぱると裂ける。スマホで2〜8人。">
+<meta name="description" content="全員で1つの荷物を持って、狭いドア・車道・雪の橋・工場・マンションの階段をゴールまで運ぶ協力ゲーム。押す向きがそろわないと回る、引っぱると裂ける。スマホで2〜8人。">
 <meta property="og:type" content="website">
 <meta property="og:title" content="みんなで運べ！">
-<meta property="og:description" content="全員で1つの荷物を持って、ドアと穴と柱のコースを運びきれ。押す向きがそろわないと回る、引っぱると裂ける。スマホで2〜8人。">
+<meta property="og:description" content="全員で1つの荷物を持って、車道も雪の橋も工場も運びきれ。押す向きがそろわないと回る、引っぱると裂ける。スマホで2〜8人。">
 <meta property="og:image" content="/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -71,9 +71,10 @@
         <li>1人ずつ荷物の持ち手が決まる（前・後ろ・左・右…）</li>
         <li>スティックで自分の持ち手を押す。全員の力を足した向きに進む</li>
         <li>ばらばらに押すと回る。外へ引っぱり合うと荷物が裂ける</li>
-        <li>壁に強くぶつけると傷む。真ん中の印が穴に入ると落ちる</li>
-        <li>120秒以内にゴールへ。声をかけ合って運ぶ</li>
+        <li>壁にぶつける・車にひかれると傷む。真ん中の印が穴に入ると落ちる</li>
+        <li>かけ声ボタン（せーの・右回り…）で声をそろえて、時間内にゴールへ</li>
       </ol>
+      <p class="howto-s">コースは倉庫・横断歩道・雪道・工場・マンションの5つ。速く傷めずに着くと金メダル</p>
     </div>
   </section>
 
@@ -88,12 +89,14 @@
     </div>
     <ul id="players" class="players"></ul>
     <div id="setup" class="setup">
-      <p class="muted">コース: <b id="courseName"></b></p>
-      <div class="choice" id="cargoChoice" role="radiogroup" aria-label="荷物"></div>
+      <div class="pick" id="coursePick"></div>
+      <div class="pick" id="cargoPick"></div>
     </div>
     <p id="lobbyHint" class="hint"></p>
-    <button id="startBtn" class="primary" hidden>スタート</button>
-    <button id="leaveBtn" class="ghost">部屋を出る</button>
+    <div class="row lobby-actions">
+      <button id="leaveBtn" class="ghost">部屋を出る</button>
+      <button id="startBtn" class="primary grow" hidden>スタート</button>
+    </div>
   </section>
 
   <section id="game" hidden>

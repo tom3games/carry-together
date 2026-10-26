@@ -21,7 +21,14 @@ let me = null, state = null, gameMeta = null
 const NAME_KEY = 'pg-name'
 // ホストが選ぶ荷物とコース（スタートと再戦のときにサーバーへ送る。サーバー側でも検証する）
 const pick = { course: DEFAULT_COURSE, cargo: DEFAULT_CARGO }
-try { const c = localStorage.getItem('ct-cargo'); if (CARGOS[c]) pick.cargo = c } catch {}
+const COURSE_IDS = Object.keys(COURSES).filter(k => !k.startsWith('_'))
+const CARGO_IDS = Object.keys(CARGOS)
+try {
+  const c = localStorage.getItem('ct-cargo'); if (CARGO_IDS.includes(c)) pick.cargo = c
+  const k = localStorage.getItem('ct-course'); if (COURSE_IDS.includes(k)) pick.course = k
+} catch {}
+const MEDAL_NAME = { gold: '金', silver: '銀', bronze: '銅' }
+const CHEV = d => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d < 0 ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7'}" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
 
 const net = connect({
   onStatus: s => {
@@ -43,6 +50,7 @@ const net = connect({
     } else if (msg.t === 'joined') {
       history.replaceState(null, '', '/r/' + msg.code)
     } else if (msg.t === 'error') {
+      if (msg.code === 'too_fast' || msg.code === 'over') return // かけ声の連打・終了直後の操作は黙って捨てる
       toast(ERR[msg.code] ? ERR[msg.code] + (msg.need ? `（${msg.need}人から）` : '') : 'エラー: ' + msg.code)
     } else if (msg.t === 'closed') {
       state = null; toast(ERR.closed); history.replaceState(null, '', '/'); show('home')
@@ -100,21 +108,40 @@ function render() {
 }
 
 function renderSetup(isHost) {
-  $('#courseName').textContent = COURSES[pick.course].name
-  const box = $('#cargoChoice')
-  box.hidden = !isHost
-  if (!isHost) { $('#courseName').textContent += '（荷物はホストが選ぶ）'; return }
-  box.replaceChildren(...Object.entries(CARGOS).map(([id, c]) => {
-    const b = document.createElement('button')
-    b.type = 'button'
-    b.className = 'opt'
-    b.setAttribute('role', 'radio')
-    b.setAttribute('aria-checked', pick.cargo === id ? 'true' : 'false')
-    b.dataset.id = id
-    b.innerHTML = `<b>${c.name}</b><small>${c.lead}</small>`
-    b.onclick = () => { pick.cargo = id; try { localStorage.setItem('ct-cargo', id) } catch {}; renderSetup(true) }
-    return b
-  }))
+  // ホストは自分の選択、ほかの人はホストが選んだもの（サーバー経由で届く）を見る
+  const sh = state.setup || {}
+  const cur = isHost ? pick : { course: COURSE_IDS.includes(sh.course) ? sh.course : DEFAULT_COURSE, cargo: CARGO_IDS.includes(sh.cargo) ? sh.cargo : DEFAULT_CARGO }
+  if (isHost && (sh.course !== pick.course || sh.cargo !== pick.cargo)) net.send({ t: 'setup', opts: { ...pick } })
+  const best = view.loadBest()
+  const rec = best[`${cur.course}:${cur.cargo}`]
+  picker($('#coursePick'), {
+    ids: COURSE_IDS, id: cur.course, kind: 'コース', isHost,
+    title: COURSES[cur.course].name, lead: COURSES[cur.course].lead,
+    note: rec ? `自己ベスト ${rec.time}秒${rec.medal ? `・${MEDAL_NAME[rec.medal]}` : ''}` : '記録なし',
+    onPick: id => { pick.course = id; try { localStorage.setItem('ct-course', id) } catch {}; render() }
+  })
+  picker($('#cargoPick'), {
+    ids: CARGO_IDS, id: cur.cargo, kind: '荷物', isHost,
+    title: CARGOS[cur.cargo].name, lead: CARGOS[cur.cargo].lead, note: isHost ? '' : 'ホストが選ぶ',
+    onPick: id => { pick.cargo = id; try { localStorage.setItem('ct-cargo', id) } catch {}; render() }
+  })
+}
+
+// 左右の矢印で1つずつ切り替える選択欄（狭い画面でも2段で収まる）
+function picker(el, { ids, id, kind, isHost, title, lead, note, onPick }) {
+  const i = ids.indexOf(id)
+  el.dataset.host = isHost ? '1' : '0'
+  el.innerHTML = `
+    <button type="button" class="pk-btn" data-d="-1" aria-label="前の${kind}">${CHEV(-1)}</button>
+    <div class="pk-body" data-id="${id}"><small>${kind} ${i + 1}/${ids.length}</small><b></b><span class="pk-lead"></span><span class="pk-note"></span></div>
+    <button type="button" class="pk-btn" data-d="1" aria-label="次の${kind}">${CHEV(1)}</button>`
+  el.querySelector('b').textContent = title
+  el.querySelector('.pk-lead').textContent = lead
+  el.querySelector('.pk-note').textContent = note
+  for (const b of el.querySelectorAll('.pk-btn')) {
+    b.hidden = !isHost
+    b.onclick = () => onPick(ids[(i + Number(b.dataset.d) + ids.length) % ids.length])
+  }
 }
 
 function badge(text) { const b = document.createElement('span'); b.className = 'badge'; b.textContent = text; return b }

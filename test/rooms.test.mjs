@@ -73,7 +73,7 @@ test('ゲームが終わると結果になり、ホストが再戦できる（�
   const room = m.rooms.get(code)
   assert.equal(room.game.view(a).cargo, 'tank')
   // 2人で前へ押し続ける（横向きのソファではないので、ドアの壁にぶつかって止まるか時間切れ）
-  for (let i = 0; i < (PHYS.countdown + COURSES.warehouse.timeLimit + 1) * 10 && room.phase === 'playing'; i++) {
+  for (let i = 0; i < (PHYS.countdown + COURSES.warehouse.timeLimit + PHYS.endHold + 1) * 10 && room.phase === 'playing'; i++) {
     m.input(a, { type: 'push', x: 0, y: -0.2 }); m.input(b, { type: 'push', x: 0, y: -0.2 })
     advance(100)
   }
@@ -106,7 +106,7 @@ test('時間切れで負けになる', () => {
   const { code } = m.create(a, 'A')
   m.join(s(), code, 'B')
   m.start(a)
-  for (let i = 0; i < (PHYS.countdown + COURSES.warehouse.timeLimit + 1) * 10; i++) advance(100)
+  for (let i = 0; i < (PHYS.countdown + COURSES.warehouse.timeLimit + PHYS.endHold + 1) * 10; i++) advance(100)
   assert.equal(m.rooms.get(code).phase, 'result')
   assert.equal(m.rooms.get(code).result.win, false)
 })
@@ -139,4 +139,18 @@ test('他人の token では席を奪えない', () => {
   const a = m.newSession()
   assert.equal(m.resume(a.id, 'wrong'), null)
   assert.ok(m.resume(a.id, a.token))
+})
+
+test('ホストが選んだコースと荷物は全員に見える。ホスト以外は変えられず、変な値は捨てる', () => {
+  const sent = []
+  const m = new RoomManager(gameDef, { send: (id, msg) => sent.push([id, msg]) })
+  const a = m.newSession().id, b = m.newSession().id
+  const { code } = m.create(a, 'A')
+  m.join(b, code, 'B')
+  assert.equal(m.setup(a, { course: 'snow', cargo: 'piano' }).ok, true)
+  const last = id => sent.filter(([to, msg]) => to === id && msg.t === 'state').pop()[1]
+  assert.deepEqual(last(b).setup, { course: 'snow', cargo: 'piano' })
+  assert.equal(m.setup(b, { course: 'factory' }).error, 'not_host')
+  m.setup(a, { course: '<script>', cargo: 5, __proto__: { x: 'y' }, ['a'.repeat(30)]: 'snow' })
+  assert.deepEqual(last(b).setup, {})
 })

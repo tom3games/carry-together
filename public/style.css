@@ -45,17 +45,25 @@ details summary { cursor: pointer; color: var(--muted); padding: 10px 0; min-hei
 .code { font-size: 40px; font-weight: 800; letter-spacing: .2em; margin: 0; line-height: 1.1; }
 .muted { color: var(--muted); margin: 0; font-size: 14px; }
 .hint { color: var(--muted); margin: 0; font-size: 14px; text-align: center; }
-.lobby-top { display: flex; justify-content: space-between; align-items: flex-end; }
+.lobby-top { display: flex; justify-content: space-between; align-items: flex-end; white-space: nowrap; gap: 8px; }
+.lobby-actions #leaveBtn { flex: 0 0 auto; padding: 0 12px; font-size: 15px; }
+.lobby-actions button { white-space: nowrap; }
+.lobby-actions:has(#startBtn[hidden]) #leaveBtn { flex: 1; }
 .players { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .players li { padding: 8px 10px; border-radius: 10px; background: #1d2026; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 15px; min-width: 0; overflow-wrap: anywhere; }
 .players li.off { opacity: .5; }
 .badge { font-size: 11px; padding: 2px 7px; border-radius: 99px; background: #3a4150; color: var(--muted); }
 .setup { display: flex; flex-direction: column; gap: 8px; }
-.choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; text-align: left; min-height: 64px; background: #1d2026; }
-.opt small { font-weight: 400; font-size: 12px; color: var(--muted); line-height: 1.4; }
-.opt[aria-checked="true"] { border: 2px solid var(--accent); background: #3a2d1c; }
-.opt[aria-checked="true"] b::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-right: 6px; }
+.pick { display: flex; align-items: stretch; gap: 6px; }
+.pk-btn { width: 44px; flex: 0 0 auto; padding: 0; display: grid; place-items: center; background: #2c313b; }
+.pk-btn svg { width: 22px; height: 22px; }
+.pk-body { flex: 1; min-width: 0; background: #1d2026; border: 2px solid var(--accent); border-radius: 10px; padding: 5px 10px; display: flex; flex-direction: column; gap: 1px; }
+.pick[data-host="0"] .pk-body { border-color: var(--line); }
+.pk-body small { font-size: 11px; color: var(--muted); }
+.pk-body b { font-size: 16px; line-height: 1.3; }
+.pk-lead { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.pk-note { font-size: 12px; color: var(--accent); font-weight: 700; }
+.pk-note:empty { display: none; }
 
 /* ゲーム画面 */
 #game { width: 100%; max-width: 560px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -78,8 +86,21 @@ details summary { cursor: pointer; color: var(--muted); padding: 10px 0; min-hei
 .banner b { font-size: 48px; line-height: 1; color: var(--accent); }
 .banner span { font-size: 16px; font-weight: 700; white-space: nowrap; }
 .banner[data-kind="warn"] { top: 22%; background: rgba(170,20,20,.88); animation: blink .4s infinite alternate; }
+.banner[data-kind="win"] b { color: var(--ok); font-size: 44px; }
+.banner[data-kind="lose"] b { color: var(--ng); font-size: 40px; }
+.banner[data-kind="win"], .banner[data-kind="lose"], .banner[data-kind="seeno"] { top: 40%; animation: popin .35s cubic-bezier(.2,1.6,.4,1); }
+.banner[data-kind="seeno"] b { font-size: 40px; color: #fff; }
+@keyframes popin { from { transform: translate(-50%, -50%) scale(.4); } to { transform: translate(-50%, -50%) scale(1); } }
+.prog { position: absolute; left: 0; right: 0; top: 0; height: 5px; background: #0006; pointer-events: none; }
+.prog i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
 @keyframes blink { to { opacity: .6; } }
-.ctl { display: flex; align-items: center; gap: 12px; }
+.ctl { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.emotes { order: -1; flex: 1 1 100%; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.em-btn { min-height: 46px; padding: 2px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 10.5px; font-weight: 700; background: #2c313b; border-radius: 10px; }
+.em-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.em-btn span { white-space: nowrap; }
+.em-btn.hit { animation: emhit .3s; background: var(--accent); color: var(--accent-ink); }
+@keyframes emhit { 50% { transform: scale(.9); } }
 .me-card { flex: 1; display: flex; align-items: center; gap: 10px; font-size: 15px; line-height: 1.35; min-width: 0; }
 .me-card small { color: var(--muted); }
 .me-dot { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto; border-radius: 50%; color: #111; font-weight: 800; border: 2px solid #111; }
@@ -98,7 +119,20 @@ details summary { cursor: pointer; color: var(--muted); padding: 10px 0; min-hei
 .result-title[data-win="1"]::after { content: "配達完了"; }
 .result-title[data-win="0"]::after { content: "配達失敗"; }
 .res { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-.res-reason { margin: 0; text-align: center; color: var(--muted); }
+.res-reason { margin: 0; color: var(--muted); font-size: 14px; }
+.res-top { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+.medal { position: relative; width: 58px; height: 67px; flex: 0 0 auto; animation: medalin .6s cubic-bezier(.2,1.6,.4,1); }
+.medal svg { width: 100%; height: 100%; display: block; }
+.medal b { position: absolute; left: 0; right: 0; top: 30px; text-align: center; font-size: 20px; color: #2a1d00; }
+@keyframes medalin { from { transform: scale(0) rotate(-40deg); } to { transform: scale(1) rotate(0); } }
+.res-best { margin: 0; font-size: 14px; font-weight: 700; color: var(--muted); }
+.res-best[data-new="1"] { color: var(--accent); }
+.res-note { margin: 0; font-size: 13px; text-align: center; color: var(--text); display: flex; flex-wrap: wrap; justify-content: center; gap: 0 12px; }
+.res-note span { white-space: nowrap; }
+.confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.confetti i { position: absolute; top: -12px; width: 8px; height: 12px; border-radius: 2px; animation: fall 2.2s ease-in forwards; opacity: .9; }
+@keyframes fall { to { transform: translateY(110vh) rotate(540deg); opacity: .2; } }
+.howto-s { margin: 6px 0 0; font-size: 13px; }
 .res-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .res-stats div { background: #1d2026; border-radius: 10px; padding: 6px 4px; text-align: center; display: flex; flex-direction: column; }
 .res-stats small { font-size: 11px; color: var(--muted); }
@@ -129,8 +163,11 @@ details summary { cursor: pointer; color: var(--muted); padding: 10px 0; min-hei
   .code { font-size: 32px; }
   .players li { padding: 5px 8px; font-size: 14px; }
   .opt { min-height: 56px; padding: 6px 8px; }
-  .pad { width: 128px; height: 128px; }
-  .knob { width: 52px; height: 52px; margin: -26px 0 0 -26px; }
+  .pad { width: 116px; height: 116px; }
+  .knob { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
+  .em-btn { min-height: 44px; }
+  .pk-lead { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .howto-s { display: none; }
   .result-title { font-size: 28px; }
 }
 /* 背の低い横画面: 左に盤面、右に操作 */
@@ -138,21 +175,23 @@ details summary { cursor: pointer; color: var(--muted); padding: 10px 0; min-hei
   .top { padding-top: 4px; padding-bottom: 2px; }
   main { padding-top: 2px; }
   #game { max-width: none; }
-  .stage { display: grid; grid-template-columns: 1fr 190px; grid-template-rows: auto 1fr; gap: 6px 10px; }
-  .hud { grid-column: 1 / 3; font-size: 16px; }
-  .field-wrap { grid-column: 1; grid-row: 2; min-height: 0; }
-  .ctl { grid-column: 2; grid-row: 2; flex-direction: column; justify-content: center; }
-  .me-card { flex: 0 0 auto; }
-  .pad { width: 140px; height: 140px; }
+  /* 左: 自分の持ち手とかけ声 / 真ん中: 盤面 / 右: スティック */
+  .stage { display: grid; grid-template-columns: 128px 1fr 160px; grid-template-rows: auto 1fr; gap: 6px 10px; }
+  .hud { grid-column: 1 / 4; font-size: 16px; }
+  .field-wrap { grid-column: 2; grid-row: 2; min-height: 0; }
+  .ctl { display: contents; }
+  .me-card { grid-column: 1; grid-row: 2; align-self: start; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 13px; }
+  .emotes { grid-column: 1; grid-row: 2; align-self: end; grid-template-columns: 1fr 1fr; }
+  .pad { grid-column: 3; grid-row: 2; align-self: center; justify-self: center; width: 140px; height: 140px; }
   .quit { position: fixed; right: 12px; bottom: 6px; margin: 0; z-index: 3; background: #1b1d22cc; }
-  .ctl { justify-content: flex-start; padding-bottom: 48px; }
   .card { max-width: 760px; }
   #home.card { display: grid; grid-template-columns: 1fr 1fr; align-content: start; column-gap: 18px; }
   #home h1, #home .lead, #home .field, #home #createBtn, #home details { grid-column: 1; }
   #home .howto { grid-column: 2; grid-row: 1 / 7; }
   #lobby.card { display: grid; grid-template-columns: 1fr 1fr; align-content: start; column-gap: 18px; }
   #lobby .players, #lobby .setup { grid-column: 2; }
-  #lobby .lobby-top, #lobby .row, #lobby .hint, #lobby #startBtn, #lobby #leaveBtn { grid-column: 1; }
+  #lobby .lobby-top, #lobby .row, #lobby .hint { grid-column: 1; }
+  #lobby .lobby-actions { align-self: end; }
   #lobby .players { grid-row: 1 / 3; }
   #lobby .setup { grid-row: 3 / 6; }
   .card::before { display: none; }
@@ -161,3 +200,42 @@ details summary { cursor: pointer; color: var(--muted); padding: 10px 0; min-hei
   #result .row { align-self: end; }
   #result #resultBody { grid-column: 2; grid-row: 1 / 4; }
 }
+@media (max-height: 360px) and (orientation: landscape) {
+  .me-card { display: none; }
+  .pad { width: 120px; height: 120px; }
+  .em-btn { min-height: 44px; font-size: 10px; }
+}
+@media (max-height: 500px) and (orientation: landscape) and (max-width: 700px) {
+  .stage { grid-template-columns: 112px 1fr 132px; }
+  .pad { width: 124px; height: 124px; }
+}
+/* とても背の低い横画面（小さいスマホの横持ち）: 説明を削って2列に詰める */
+@media (max-height: 360px) and (orientation: landscape) {
+  .top { padding-top: 2px; padding-bottom: 0; }
+  .card { padding: 10px 14px; gap: 6px; }
+  h1 { font-size: 22px; }
+  #home .lead { display: none; }
+  .howto { font-size: 12px; line-height: 1.4; }
+  .howto-h { margin-top: 0; }
+  .field { gap: 2px; }
+  .code { font-size: 26px; }
+  #lobby.card { grid-template-columns: 210px 1fr; }
+  .players { gap: 4px; }
+  .players li { padding: 3px 8px; font-size: 13px; }
+  .badge { font-size: 10px; padding: 1px 5px; }
+  .pk-lead { display: none; }
+  .pk-body { padding: 3px 8px; }
+  .pk-body b { font-size: 15px; }
+  .setup { gap: 4px; }
+  #result.card { grid-template-columns: 170px 1fr; }
+  .res-top { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 2px 8px; }
+  .result-title { font-size: 24px; }
+  .medal { width: 40px; height: 46px; }
+  .medal b { top: 20px; font-size: 14px; }
+  .res { gap: 5px; }
+  .res-head { display: none; }
+  .res-stats b { font-size: 15px; }
+  .res-stats div { padding: 3px 2px; }
+  .rank.many li { padding: 2px 6px; }
+}
+

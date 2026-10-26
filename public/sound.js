@@ -50,21 +50,46 @@ export function bump(glass) {
   if (glass) { tone(1800, 0.12, { type: 'triangle', vol: 0.08 }); tone(2400, 0.1, { type: 'triangle', vol: 0.06, at: 0.04 }) }
 }
 export function count(n) { if (n > 0) tone(660, 0.12, { vol: 0.12 }); else tone(990, 0.3, { vol: 0.14 }) }
-export function win() { [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.25, { vol: 0.12, at: i * 0.12 })) }
+export function win(medal) {
+  [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.25, { vol: 0.12, at: i * 0.12 }))
+  if (medal === 'gold') [1318, 1568, 2093].forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.1, at: 0.6 + i * 0.1 }))
+}
+// 車のクラクション（2音を重ねる）
+export function honk() { tone(370, 0.28, { vol: 0.08 }); tone(466, 0.28, { vol: 0.07 }); noise(0.15, 0.4, 700) }
+// かけ声: 番号ごとに違う短いフレーズ（声の代わり）
+const EMOTE_TUNES = [[[523, 0.12], [784, 0.2]], [[523, 0.1], [659, 0.1], [784, 0.12]], [[784, 0.1], [659, 0.1], [523, 0.12]], [[440, 0.1], [440, 0.18]], [[659, 0.22], [523, 0.3]], [[784, 0.1], [1046, 0.18]]]
+export function emote(k) {
+  let at = 0
+  for (const [f, d] of EMOTE_TUNES[k] || []) { tone(f, d, { type: 'triangle', vol: 0.13, at }); at += d * 0.9 }
+}
+export function arrive() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.18, { type: 'triangle', vol: 0.12, at: i * 0.08 })) }
+export function crash() { noise(0.5, 0.6, 1800); tone(140, 0.4, { type: 'sawtooth', vol: 0.12, slide: -100 }) }
+export function fall() { tone(700, 0.9, { type: 'sine', vol: 0.12, slide: -600 }); noise(0.3, 0.3, 400) }
 export function lose() { [392, 330, 262].forEach((f, i) => tone(f, 0.3, { type: 'sawtooth', vol: 0.08, at: i * 0.18 })) }
 
-// BGM: ベースと刻みだけの短いループ（運搬のテンポ感）
-const BASS = [110, 110, 147, 131, 110, 110, 165, 147]
-export function startBgm() {
+// BGM: ベースと刻みだけの短いループ（運搬のテンポ感）。コースごとに音の並びと速さを変える
+const SONGS = {
+  wood: { bass: [110, 110, 147, 131, 110, 110, 165, 147], ms: 300, top: null },
+  street: { bass: [131, 131, 165, 147, 131, 196, 175, 165], ms: 260, top: [523, 0, 659, 0, 784, 0, 659, 0] },
+  snow: { bass: [98, 0, 131, 0, 117, 0, 147, 131], ms: 340, top: [784, 988, 0, 1175, 0, 988, 0, 0] },
+  factory: { bass: [82, 82, 82, 110, 82, 82, 123, 110], ms: 240, top: null },
+  apartment: { bass: [117, 147, 175, 147, 131, 165, 196, 165], ms: 320, top: [0, 587, 0, 0, 0, 659, 0, 0] }
+}
+let song = SONGS.wood
+export function startBgm(theme) {
   bgmWanted = true
-  if (!ctx || bgmTimer) return
+  if (theme) song = SONGS[theme] || SONGS.wood
+  if (!ctx) return
+  clearInterval(bgmTimer)
   bgmTimer = setInterval(() => {
     if (muted || document.hidden) return
-    const f = BASS[beat % BASS.length]
-    tone(f, 0.22, { type: 'triangle', vol: 0.1 })
+    const i = beat % 8
+    const f = song.bass[i]
+    if (f) tone(f, 0.22, { type: 'triangle', vol: 0.1 })
+    if (song.top && song.top[i]) tone(song.top[i], 0.12, { type: 'square', vol: 0.03 })
     if (beat % 2) noise(0.04, 0.08, 3000)
     beat++
-  }, 300)
+  }, song.ms)
 }
 export function stopBgm() { bgmWanted = false; clearInterval(bgmTimer); bgmTimer = 0 }
 
