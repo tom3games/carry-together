@@ -48,8 +48,10 @@ async function fits(page, label) {
   await page.setViewportSize({ width: 390, height: 844 })
 }
 
+// chromium は GPU を使う設定で起動する（既定のソフトウェア描画だと 3D が 20fps になり、操作の確認が間に合わない）
+const GPU = { channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] }
 for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
-  const browser = await bt.launch()
+  const browser = await bt.launch(bname === 'chromium' ? GPU : {})
   const errors = []
   const mk = async () => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'ja-JP', hasTouch: true, isMobile: bname === 'chromium' })
@@ -57,6 +59,7 @@ for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
     p.on('pageerror', e => errors.push(e.message))
     p.on('console', m => m.type() === 'error' && errors.push(m.text()))
     p.on('requestfailed', r => errors.push('requestfailed ' + r.url()))
+    p.on('response', r => r.status() >= 400 && errors.push(`${r.status()} ${r.url()}`))
     return p
   }
   const host = await mk(), g1 = await mk(), g2 = await mk()
@@ -104,13 +107,12 @@ for (const [bname, bt] of [['chromium', chromium], ['webkit', webkit]]) {
   await host.waitForTimeout(300)
   await host.screenshot({ path: `${SHOTS}${bname}-emote.png` })
   // 盤面が描けているか（ほぼ単色なら描けていない）
-  const variance = await host.evaluate(() => {
-    const c = document.querySelector('#g-cv'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    let s = 0, s2 = 0, n = 0
-    for (let i = 0; i < d.length; i += 4 * 97) { const y = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; s += y; s2 += y * y; n++ }
-    return s2 / n - (s / n) ** 2
-  })
-  check(variance > 200, `${bname}: 盤面が描けている（輝度の分散 ${Math.round(variance)}）`)
+  const mode = await host.evaluate(() => window.__ct.mode())
+  check(mode === '3d', `${bname}: 3D で描いている（${mode}）`)
+  const variance = await host.evaluate(() => window.__ct.variance())
+  check(variance > 200, `${bname}: 3D の盤面が描けている（輝度の分散 ${Math.round(variance)}）`)
+  const fps = await host.evaluate(() => window.__ct.fps())
+  console.log(`     ${bname}: fps ${fps.toFixed(1)}（headless の参考値。スマホ相当の測定は tools/fps.mjs）`)
   await play.playToEnd([host, g1, g2], { shot: async () => {
     await host.screenshot({ path: `${SHOTS}${bname}-game.png` })
     await fits(g1, `${bname}-game`)

@@ -140,7 +140,7 @@ test('壁に勢いよくぶつけると傷み、壁を突き抜けない。ゆ�
 })
 
 test('ソファは横向きのままではドアを通れない（縦にすれば通れる）', () => {
-  const g = createGame(players(4), { rng: fixed })
+  const g = createGame(players(4), { cargo: 'sofa', rng: fixed })
   afterCountdown(g)
   run(g, 10, allPush(4, 0, -1))
   const v = g.view('p0')
@@ -175,7 +175,7 @@ test('ゴールに入るとクリア。スコアは 1000 + 残り秒×10 + 耐�
 test('全コース・全荷物を、2人でも8人でも、そろえて押せば制限時間内に運べる（自動操縦）', () => {
   const realCourses = Object.keys(COURSES).filter(c => !c.startsWith('_'))
   assert.equal(realCourses.length, 5)
-  assert.equal(Object.keys(CARGOS).length, 4)
+  assert.equal(Object.keys(CARGOS).length, 5)
   for (const course of realCourses) {
     for (const cargo of Object.keys(CARGOS)) {
       for (const n of [2, 8]) {
@@ -412,7 +412,7 @@ test('でたらめに押し続けても、荷物は壁を抜けず、世界の�
 })
 
 test('全力でドアの壁に突っ込んでも、1回の衝突で壊れきらない（ソファ）', () => {
-  const g = createGame(players(2), { rng: fixed })
+  const g = createGame(players(2), { cargo: 'sofa', rng: fixed })
   afterCountdown(g)
   run(g, 4, allPush(2, 0, -1))
   const v = g.view('p0')

@@ -1,46 +1,56 @@
-// OGP 画像（public/og.png, 1200x630）を SVG から作る。使い方: node tools/make-og.mjs
+// OGP 画像（public/og.png, 1200x630）を作る。使い方: node tools/make-og.mjs
+// 1) サーバーを立てて4人で横断歩道を運び始め、3D の画面だけを撮る（HUD は隠す）
+// 2) その上にタイトルのロゴ（筆のかすれ＋白と橙の文字）と手書きの一言を重ねる
 import { chromium } from 'playwright'
-const cols = ['#ffcf3a', '#5ad1ff', '#ff7aa8', '#8be36b']
-const people = [[-150, 0, 1, 0.25], [0, -62, 0.7, -0.7], [150, 0, 1, -0.2], [0, 62, 0.9, 0.4]]
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-<defs>
-  <pattern id="wood" width="240" height="60" patternUnits="userSpaceOnUse">
-    <rect width="240" height="60" fill="#b48a5a"/><path d="M0 0H240M120 0V60" stroke="#6e4a26" stroke-opacity=".35" stroke-width="3"/>
-  </pattern>
-  <marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#fff"/></marker>
-</defs>
-<rect width="1200" height="630" fill="#1b1d22"/>
-<rect x="620" y="0" width="580" height="630" fill="url(#wood)"/>
-<rect x="620" y="0" width="580" height="90" fill="#3a3f4b"/><rect x="620" y="540" width="580" height="90" fill="#3a3f4b"/>
-<rect x="900" y="0" width="160" height="90" fill="#b48a5a"/>
-<rect x="905" y="20" width="150" height="60" fill="#3ddc97" fill-opacity=".35" stroke="#3ddc97" stroke-width="5" stroke-dasharray="14 9"/>
-<g transform="translate(905 330) rotate(-28)">
-  <rect x="-160" y="-60" width="320" height="120" fill="#000" fill-opacity=".25" transform="translate(10 12)"/>
-  <rect x="-160" y="-60" width="320" height="120" fill="#8f3626" stroke="#5a1f14" stroke-width="5"/>
-  <rect x="-140" y="-32" width="280" height="80" fill="#c8553d"/>
-  <rect x="-160" y="-60" width="320" height="28" fill="#a5402d"/>
-  <path d="M0 -32V48" stroke="#000" stroke-opacity=".25" stroke-width="4"/>
-  <circle r="14" fill="none" stroke="#fff" stroke-width="5"/><path d="M-22 0H22M0 -22V22" stroke="#fff" stroke-width="5"/>
-  ${people.map(([x, y, ux, uy], i) => {
-    const ox = x === 0 ? 0 : Math.sign(x) * 40, oy = y === 0 ? 0 : Math.sign(y) * 40
-    const px = x + ox, py = y + oy, m = Math.hypot(ux, uy)
-    return `<path d="M${x} ${y}L${px} ${py}" stroke="${cols[i]}" stroke-width="10" stroke-linecap="round"/>
-    <path d="M${px} ${py}l${(ux / m) * 80} ${(uy / m) * 80}" stroke="#fff" stroke-width="9" stroke-linecap="round" marker-end="url(#ah)"/>
-    <circle cx="${px}" cy="${py}" r="30" fill="${cols[i]}" stroke="#111" stroke-width="5"/>
-    <text x="${px}" y="${py + 11}" font-size="32" font-weight="800" text-anchor="middle" fill="#111" font-family="Hiragino Sans, sans-serif" transform="rotate(28 ${px} ${py})">${i + 1}</text>`
-  }).join('')}
-</g>
-<rect x="56" y="64" width="110" height="16" fill="#d9b27c"/>
-<text x="56" y="190" font-size="92" font-weight="900" fill="#f4f1ea" font-family="Hiragino Sans, Noto Sans JP, sans-serif">みんなで</text>
-<text x="56" y="300" font-size="92" font-weight="900" fill="#f0a040" font-family="Hiragino Sans, Noto Sans JP, sans-serif">運べ！</text>
-<text x="58" y="378" font-size="34" font-weight="700" fill="#f4f1ea" font-family="Hiragino Sans, Noto Sans JP, sans-serif">2〜8人で巨大な荷物を運ぶ</text>
-<text x="58" y="426" font-size="34" font-weight="700" fill="#f4f1ea" font-family="Hiragino Sans, Noto Sans JP, sans-serif">協力ゲーム</text>
-<text x="58" y="500" font-size="26" fill="#a9adb6" font-family="Hiragino Sans, Noto Sans JP, sans-serif">車道・雪の橋・工場・階段など5コース。</text>
-<text x="58" y="540" font-size="26" fill="#a9adb6" font-family="Hiragino Sans, Noto Sans JP, sans-serif">声をかけ合って運べ。リンクから参加。</text>
-</svg>`
-const b = await chromium.launch()
-const p = await b.newPage({ viewport: { width: 1200, height: 630 } })
-await p.setContent(`<html><body style="margin:0">${svg}</body></html>`)
-await p.screenshot({ path: new URL('../public/og.png', import.meta.url).pathname })
-await b.close()
+import { readFile } from 'node:fs/promises'
+import { startServer } from '../server.mjs'
+import { makePilot } from './autopilot.mjs'
+
+const OUT = new URL('../public/og.png', import.meta.url).pathname
+const srv = await startServer({ port: 0, quiet: true })
+const base = `http://localhost:${srv.port}`
+const b = await chromium.launch({ channel: 'chromium', args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] })
+const pages = []
+for (let i = 0; i < 4; i++) pages.push(await (await b.newContext({ viewport: i ? { width: 390, height: 844 } : { width: 1200, height: 630 }, deviceScaleFactor: i ? 1 : 1.5, locale: 'ja-JP' })).newPage())
+const [h] = pages
+await h.goto(base); await h.fill('#name', 'たろう'); await h.click('#createBtn'); await h.waitForSelector('#lobby:not([hidden])')
+for (let i = 0; i < 6 && await h.getAttribute('#coursePick .pk-body', 'data-id') !== 'crosswalk'; i++) await h.click('#coursePick .pk-btn[data-d="1"]')
+const inv = await h.inputValue('#invite')
+for (const [i, nm] of [[1, 'はなこ'], [2, 'けんた'], [3, 'みお']]) { await pages[i].goto(inv); await pages[i].fill('#name', nm); await pages[i].click('#joinBtn'); await pages[i].waitForSelector('#lobby:not([hidden])') }
+await h.click('#startBtn')
+await h.waitForFunction(() => window.__ct && window.__ct.view() && window.__ct.view().cd === 0, null, { timeout: 10000 })
+const v0 = await h.evaluate(() => window.__ct.view())
+const pilot = makePilot(v0.course, v0.cargo, v0.n)
+const mine = []
+for (const p of pages) mine.push((await p.evaluate(() => window.__ct.view())).me)
+const t0 = Date.now()
+while (Date.now() - t0 < 7000) {
+  const v = await h.evaluate(() => window.__ct.view())
+  const ins = pilot.inputs(v)
+  await Promise.all(pages.map((p, i) => p.evaluate(([x, y]) => window.__ct.push(x, y), ins[mine[i]])))
+  await h.waitForTimeout(80)
+}
+await pages[2].evaluate(() => window.__ct.emote(0))
+await h.waitForTimeout(400)
+await h.addStyleTag({ content: '.hud-top,.route,.me-chip,.emotes,.pad,#g-ov,#quitBtn,.banner,.tag{display:none!important}' })
+await h.waitForTimeout(200)
+const shot = await h.locator('#g-wrap').screenshot()
+const bg = 'data:image/png;base64,' + shot.toString('base64')
+const logo = (await readFile(new URL('../public/index.html', import.meta.url), 'utf8')).match(/<svg class="logo-svg"[\s\S]*?<\/svg>/)[0]
+const og = await (await b.newContext({ viewport: { width: 1200, height: 630 } })).newPage()
+await og.setContent(`<!doctype html><html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@900&family=Yomogi&display=swap"><style>
+  body{margin:0;width:1200px;height:630px;position:relative;overflow:hidden;font-family:"M PLUS Rounded 1c",sans-serif}
+  .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .logo{position:absolute;left:18px;top:6px;width:560px;filter:drop-shadow(0 8px 0 rgba(0,0,0,.25))}
+  .logo svg{width:100%;height:auto}
+  .hand{position:absolute;font-family:Yomogi,sans-serif;color:#fff;font-size:36px;line-height:1.3;transform:rotate(-4deg);text-shadow:3px 0 0 #17120e,-3px 0 0 #17120e,0 3px 0 #17120e,0 -3px 0 #17120e,2px 2px 0 #17120e,-2px 2px 0 #17120e,2px -2px 0 #17120e,-2px -2px 0 #17120e}
+  .hand::after{content:"";display:block;width:85%;height:5px;margin-top:4px;border-radius:4px;background:#fff;box-shadow:0 0 0 3px #17120e;transform:rotate(-3deg)}
+</style></head><body><img class="bg" src="${bg}"><div class="logo">${logo}</div>
+<p class="hand" style="right:40px;top:26px">2〜8人で協力して<br>荷物を運べ！</p>
+<p class="hand" style="left:40px;bottom:30px;transform:rotate(3deg)">壊してもいい、<br>それで進める。</p>
+<p class="hand" style="right:44px;bottom:34px">一緒に運ぶから<br>楽しい！</p></body></html>`)
+await og.waitForLoadState('networkidle').catch(() => {})
+await og.evaluate(() => document.fonts.ready)
+await og.screenshot({ path: OUT })
+await b.close(); await srv.close()
 console.log('public/og.png')

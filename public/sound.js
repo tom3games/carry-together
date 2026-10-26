@@ -62,6 +62,8 @@ export function emote(k) {
   let at = 0
   for (const [f, d] of EMOTE_TUNES[k] || []) { tone(f, d, { type: 'triangle', vol: 0.13, at }); at += d * 0.9 }
 }
+// 飾り（コーンなど）を吹き飛ばした音
+export function knock() { tone(520, 0.08, { type: 'triangle', vol: 0.1, slide: 260 }); noise(0.06, 0.18, 2400) }
 export function arrive() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.18, { type: 'triangle', vol: 0.12, at: i * 0.08 })) }
 export function crash() { noise(0.5, 0.6, 1800); tone(140, 0.4, { type: 'sawtooth', vol: 0.12, slide: -100 }) }
 export function fall() { tone(700, 0.9, { type: 'sine', vol: 0.12, slide: -600 }); noise(0.3, 0.3, 400) }

@@ -2,6 +2,7 @@
 // 画面は届いた位置を少し遅らせて補間し、滑らかに見せるだけ。動きの計算はサーバーがする。
 import { COURSES, CARGOS, EMOTES, handleOffsets, handleLabel, moverAt, PLAYER_COLORS } from './stages.js'
 import * as sfx from './sound.js'
+import { createView3D } from './view3d.js'
 
 const $ = s => document.querySelector(s)
 const INTERP_MS = 110 // サーバーは 20Hz。2コマ分ほど遅らせて間を埋める
@@ -19,34 +20,64 @@ const DONE_TEXT = { goal: '到着！', fall: '落ちた！', broken: '壊れた�
 
 let ui = null // 1ラウンド分の画面の部品と状態
 
+// HUD のアイコン（SVG、線だけ）
+const ICON = {
+  clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>',
+  box: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-4 9 4v9l-9 4-9-4z"/><path d="M3 8l9 4 9-4M12 12v9"/></svg>',
+  zoom: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21M8 10.5h5"/></svg>',
+  truck: '<svg viewBox="0 0 32 20" aria-hidden="true"><path d="M1 3h18v12H1zM19 7h6l5 5v3H19z" fill="#ffc83a" stroke="#2a2119" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7" cy="16" r="3" fill="#2a2119"/><circle cx="24" cy="16" r="3" fill="#2a2119"/></svg>',
+  quit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></svg>'
+}
+
 function build(state, send) {
   const g = state.game
   const root = $('#stage')
   root.innerHTML = `
-    <div class="hud">
-      <div class="hud-item" id="g-timeBox"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 7v4l3 2M8 2h4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg><span id="g-time"></span></div>
-      <div class="hud-bar" aria-label="耐久"><span class="hud-lbl">耐久</span><div class="bar"><i id="g-hp"></i></div><span id="g-hpNum"></span></div>
-      <button id="g-mute" class="icon-btn" aria-label="音"></button>
-    </div>
-    <div class="field-wrap" id="g-wrap"><canvas id="g-cv"></canvas>
-      <div class="prog" aria-hidden="true"><i id="g-prog"></i></div>
+    <div class="play" id="g-wrap">
+      <canvas id="g-cv"></canvas>
+      <canvas id="g-ov" aria-hidden="true"></canvas>
+      <div class="labels" id="g-labels" aria-hidden="true"></div>
+      <div class="hud-top">
+        <div class="chip time" id="g-timeBox">${ICON.clock}<span id="g-time"></span></div>
+        <div class="hp" aria-label="耐久">${ICON.box}<div class="bar"><i id="g-hp"></i></div><span id="g-hpNum"></span></div>
+        <button id="g-zoom" class="icon-btn" aria-label="カメラを引く">${ICON.zoom}</button>
+        <button id="g-mute" class="icon-btn" aria-label="音"></button>
+      </div>
+      <div class="route" aria-hidden="true"><div class="route-line"><i id="g-prog"></i></div><span class="route-truck" id="g-truck">${ICON.truck}</span><span class="route-flag">着</span></div>
+      <div class="me-chip" id="g-me"></div>
       <div class="banner" id="g-banner" hidden></div>
-    </div>
-    <div class="ctl">
-      <div class="me-card" id="g-me"></div>
-      <div class="pad" id="g-pad" aria-label="押す向き（ドラッグ）"><div class="pad-ring"></div><div class="knob" id="g-knob"></div></div>
       <div class="emotes" id="g-em" role="group" aria-label="かけ声">${EMOTES.map((t, i) => `<button type="button" class="em-btn" data-k="${i}" aria-label="${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${EMOTE_ICONS[i]}</svg><span>${t}</span></button>`).join('')}</div>
+      <div class="pad" id="g-pad" aria-label="押す向き（ドラッグ）"><div class="pad-ring"></div><div class="pad-arrows" aria-hidden="true"></div><div class="knob" id="g-knob"></div></div>
     </div>`
   const cv = $('#g-cv')
   const cargo = CARGOS[g.cargo]
+  const course = COURSES[g.course]
   ui = {
-    round: state.round, send, cv, ctx: cv.getContext('2d'),
-    course: COURSES[g.course], cargo, n: g.n,
+    round: state.round, send, cv, ov: $('#g-ov'),
+    course, cargo, n: g.n,
     offs: handleOffsets(cargo, g.n),
     snaps: [], last: g, cam: null, shake: 0, bumpSeen: g.bump, cdSeen: g.cd, mhSeen: g.mh, emSeen: new Set(), doneSeen: g.done,
     stick: [0, 0], keys: new Set(), sentAt: 0, sent: [0, 0], raf: 0, names: new Map(),
-    parts: [], pops: [], walk: 0, lastP: null, lastFrame: performance.now(), doneAt: null, emAt: 0, flakes: null
+    parts: [], pops: [], walk: 0, lastP: null, lastFrame: performance.now(), doneAt: null, emAt: 0, flakes: null, tags: []
   }
+  ui.ovCtx = ui.ov.getContext('2d')
+  // 3D で描く。WebGL が使えない端末は 2D の見下ろし描画に戻す
+  if (!new URLSearchParams(location.search).has('2d')) {
+    createView3D.paintFloor = paintFloor
+    try { ui.v3 = createView3D(cv, { course, cargo, n: g.n, me: g.me }) } catch (e) { console.warn('3D を使えないので 2D で描く', e); ui.v3 = null }
+  }
+  if (!ui.v3) ui.ctx = cv.getContext('2d')
+  $('#g-wrap').dataset.mode = ui.v3 ? '3d' : '2d'
+  $('#g-zoom').hidden = !ui.v3
+  $('#g-zoom').onclick = () => { if (!ui || !ui.v3) return; const far = ui.v3.toggleZoom(); $('#g-zoom').setAttribute('aria-pressed', far ? 'true' : 'false') }
+  // 名前の札（人数ぶん）
+  const lab = $('#g-labels')
+  ui.tags = ui.offs.map((_, i) => {
+    const t = document.createElement('div'); t.className = 'tag'; t.style.setProperty('--c', PLAYER_COLORS[i])
+    const b = document.createElement('div'); b.className = 'bubble'; b.style.setProperty('--c', PLAYER_COLORS[i]); b.hidden = true
+    lab.append(t, b); return { t, b, key: '' }
+  })
+  ui.popEl = document.createElement('div'); ui.popEl.className = 'pop'; lab.append(ui.popEl)
   setupPad()
   setupKeys()
   setupEmotes()
@@ -57,8 +88,21 @@ function build(state, send) {
   window.__ct = { // e2e 用の読み取りと操作口
     view: () => ui && ui.last,
     push: (x, y) => { if (ui) { ui.auto = [x, y] } },
-    emote: k => sendEmote(k)
+    emote: k => sendEmote(k),
+    mode: () => ui && (ui.v3 ? '3d' : '2d'),
+    variance: () => ui && ui.v3 ? ui.v3.variance() : null,
+    fps: () => ui && ui.v3 ? ui.v3.fps() : null,
+    tier: () => ui && ui.v3 ? ui.v3.tier : null
   }
+}
+
+// 3D の床に貼る絵（2D の描き方をそのまま使う）
+function paintFloor(ctx, course) {
+  drawFloor(ctx, course)
+  for (const d of course.deco || []) drawDeco(ctx, d, course)
+  for (const z of course.zones || []) drawZone(ctx, z, 0)
+  drawGoal(ctx, course)
+  for (const pit of course.pits) drawPit(ctx, pit, course.theme)
 }
 
 function currentVec() {
@@ -152,6 +196,7 @@ export function render(state, { send }) {
     if (g.mh !== ui.mhSeen) { ui.mhSeen = g.mh; sfx.honk(); pop('ドン！', '#ff6b6b') }
     else { sfx.bump(ui.cargo === CARGOS.tank); pop('ゴン', '#ffd36b') }
     burst(g.x, g.y, ui.cargo === CARGOS.tank ? '#bfe9ff' : '#fff1c2', 10)
+    if (navigator.vibrate) try { navigator.vibrate(40) } catch {}
   }
   if (g.cd !== ui.cdSeen) { ui.cdSeen = g.cd; sfx.count(g.cd) }
   for (const [h, k, id] of g.em || []) {
@@ -175,6 +220,7 @@ function teardown() {
   if (!ui) return
   clearInterval(ui.sendTimer)
   cancelAnimationFrame(ui.raf)
+  if (ui.v3) ui.v3.dispose()
   sfx.stopBgm()
   ui = null
 }
@@ -190,7 +236,9 @@ function updateHud(state) {
   $('#g-prog').style.width = `${g.prog}%`
   const label = g.me >= 0 ? handleLabel(ui.cargo, ui.offs[g.me]) : '-'
   const col = PLAYER_COLORS[g.me] || '#888'
-  $('#g-me').innerHTML = `<span class="me-dot" style="background:${col}">${g.me + 1}</span><span><b>${label}</b>の持ち手<br><small>${ui.cargo.name}・${g.n}人</small></span>`
+  const meKey = `${g.me}|${label}`
+  if (ui.meKey !== meKey) { ui.meKey = meKey; $('#g-me').innerHTML = `<span class="me-dot" style="background:${col}">${g.me + 1}</span><span><b>${label}</b>を持つ</span>` }
+  $('#g-truck').style.left = `${Math.max(0, Math.min(100, g.prog))}%`
   updateBanner()
 }
 
@@ -212,14 +260,19 @@ function updateBanner() {
 }
 
 // ---- 演出の粒
-function pop(text, color) { ui.pops.push({ text, color, t: performance.now() }) }
+function pop(text, color) {
+  ui.pops.push({ text, color, t: performance.now() })
+  if (ui.popEl) { ui.popEl.textContent = text; ui.popEl.style.color = color; ui.popEl.classList.remove('on'); void ui.popEl.offsetWidth; ui.popEl.classList.add('on') }
+}
 function burst(x, y, color, n) {
+  if (ui.v3) return ui.v3.burst(x, y, color, n)
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 160
     ui.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.6 + Math.random() * 0.4, age: 0, r: 3 + Math.random() * 4, color, kind: 'chip' })
   }
 }
 function confetti(x, y) {
+  if (ui.v3) { if (!ui.confDone) { ui.confDone = true; ui.v3.confetti(x, y) } return }
   const a = Math.random() * Math.PI * 2, v = 120 + Math.random() * 260
   ui.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, life: 1.6 + Math.random() * 0.6, age: 0, r: 4 + Math.random() * 4, color: PLAYER_COLORS[Math.floor(Math.random() * 8)], kind: 'conf', spin: Math.random() * 6 })
 }
@@ -247,14 +300,13 @@ function sample() {
 function frame() {
   ui.raf = 0
   if ($('#game').hidden) { teardown(); return } // 退出などでゲーム画面を離れたら、送信と BGM も止める
-  const cv = ui.cv, ctx = ui.ctx
+  const cv = ui.cv
   const wrap = $('#g-wrap')
   const dpr = Math.min(2, devicePixelRatio || 1)
   const W = wrap.clientWidth, H = wrap.clientHeight
-  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
-    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr)
-    cv.style.width = W + 'px'; cv.style.height = H + 'px'
-  }
+  const ov = ui.ov
+  if (ov.width !== Math.round(W * dpr) || ov.height !== Math.round(H * dpr)) { ov.width = Math.round(W * dpr); ov.height = Math.round(H * dpr) }
+  if (!ui.v3 && (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr))) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr) }
   const now = performance.now()
   const dt = Math.min(0.05, (now - ui.lastFrame) / 1000)
   ui.lastFrame = now
@@ -265,14 +317,74 @@ function frame() {
       const d = Math.hypot(p.x - ui.lastP.x, p.y - ui.lastP.y)
       ui.walk += d * 0.12 + Math.abs(p.a - ui.lastP.a) * 6
       ui.speed = ui.speed == null ? d / Math.max(dt, 1e-3) : ui.speed * 0.85 + (d / Math.max(dt, 1e-3)) * 0.15
-      if (d > 0.8 && !ui.last.done && Math.random() < 0.5) dust(p)
+      if (!ui.v3 && d > 0.8 && !ui.last.done && Math.random() < 0.5) dust(p)
     }
     ui.lastP = { x: p.x, y: p.y, a: p.a }
-    stepParts(dt)
-    draw(ctx, W, H, dpr, p, now)
+    const o = ui.ovCtx
+    o.setTransform(dpr, 0, 0, dpr, 0, 0)
+    o.clearRect(0, 0, W, H)
+    if (ui.v3) {
+      ui.v3.setSize(W, H)
+      const r = ui.v3.frame({ p, g: ui.last, now, dt: Math.max(dt, 1 / 240), walk: ui.walk, speed: ui.speed || 0, doneAt: ui.doneAt })
+      placeTags(r.labels, now)
+      if (ui.v3.knocked !== (ui.knockSeen || 0)) { ui.knockSeen = ui.v3.knocked; sfx.knock() }
+      placePop(r.cargoScreen)
+      if (ui.shake > 0.01) { wrap.style.setProperty('--sx', `${(Math.random() - 0.5) * 10 * ui.shake}px`); wrap.style.setProperty('--sy', `${(Math.random() - 0.5) * 10 * ui.shake}px`); ui.shake *= 0.85 }
+      else { wrap.style.setProperty('--sx', '0px'); wrap.style.setProperty('--sy', '0px') }
+      drawMinimap(o, W, H, ui.course, p, p.gt || 0)
+      edgeArrow(o, W, H, r.goal)
+    } else {
+      stepParts(dt)
+      draw(ui.ctx, W, H, dpr, p, now)
+    }
     updateBanner()
   }
   ui.raf = requestAnimationFrame(frame)
+}
+
+// 名前の札とかけ声の吹き出し（3D の頭の上に HTML を重ねる）
+function placeTags(labels, now) {
+  const g = ui.last
+  const em = new Map((g.em || []).map(e => [e[0], e[1]]))
+  for (const L of labels) {
+    const tg = ui.tags[L.i]
+    if (!tg) continue
+    const h = g.hs[L.i] || [null]
+    const mine = L.i === g.me
+    let name = mine ? 'あなた' : ((h[0] && ui.names.get(h[0])) || '')
+    if (!mine && ui.n > 4) name = '' // 5人以上は番号だけ（札が重ならないように）
+    const key = `${L.i + 1}|${name}|${L.on}|${mine}`
+    if (tg.key !== key) {
+      tg.key = key
+      tg.t.innerHTML = `<b>${L.on ? L.i + 1 : '×'}</b><span></span>`
+      tg.t.querySelector('span').textContent = name
+      tg.t.classList.toggle('mine', mine); tg.t.classList.toggle('off', !L.on)
+    }
+    tg.t.style.transform = `translate(${L.x}px, ${L.y}px) translate(-50%, -100%)`
+    tg.t.style.zIndex = L.i === g.me ? 2 : 1
+    const k = em.get(L.i)
+    if (k != null) {
+      if (tg.b.hidden || tg.b.dataset.k !== String(k)) { tg.b.textContent = EMOTES[k]; tg.b.dataset.k = k; tg.b.hidden = false; tg.b.classList.remove('in'); void tg.b.offsetWidth; tg.b.classList.add('in') }
+      tg.b.style.transform = `translate(${L.x}px, ${L.y - 26}px) translate(-50%, -100%)`
+    } else if (!tg.b.hidden) tg.b.hidden = true
+  }
+}
+function placePop(sc) {
+  if (!ui.popEl || !sc) return
+  ui.popEl.style.left = sc.x + 'px'; ui.popEl.style.top = sc.y + 'px'
+}
+
+// ゴールが画面の外にあるとき、その向きを画面の縁に出す（3D 用）
+function edgeArrow(ctx, W, H, gp) {
+  if (!gp || (!gp.behind && gp.x > 0 && gp.x < W && gp.y > 0 && gp.y < H)) return
+  let dx = gp.x - W / 2, dy = gp.y - H / 2
+  if (gp.behind) { dx = -dx; dy = -dy }
+  const k = Math.min((W / 2 - 30) / Math.abs(dx || 1e-6), (H / 2 - 30) / Math.abs(dy || 1e-6))
+  const ax = W / 2 + dx * k, ay = H / 2 + dy * k, ang = Math.atan2(dy, dx)
+  ctx.save(); ctx.translate(ax, ay); ctx.rotate(ang)
+  ctx.fillStyle = '#3ddc97'; ctx.strokeStyle = '#0b5d38'; ctx.lineWidth = 3
+  ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-12, -14); ctx.lineTo(-5, 0); ctx.lineTo(-12, 14); ctx.closePath(); ctx.fill(); ctx.stroke()
+  ctx.restore()
 }
 
 function dust(p) {
@@ -580,6 +692,11 @@ function drawCargo(ctx, cargo, p, k = 1) {
     ctx.fillStyle = '#ff6b9a'
     ctx.beginPath(); ctx.ellipse(-20 - wob, 14, 9, 5, 0, 0, Math.PI * 2); ctx.fill()
     ctx.strokeStyle = '#1d4e63'; ctx.lineWidth = 3; ctx.strokeRect(-hw, -hh, cargo.w, cargo.h)
+  } else if (cargo === CARGOS.crate) {
+    ctx.fillStyle = '#c8935a'; ctx.fillRect(-hw, -hh, cargo.w, cargo.h)
+    ctx.strokeStyle = '#8a5a2e'; ctx.lineWidth = 8; ctx.strokeRect(-hw + 4, -hh + 4, cargo.w - 8, cargo.h - 8)
+    ctx.beginPath(); ctx.moveTo(-hw + 6, -hh + 6); ctx.lineTo(hw - 6, hh - 6); ctx.stroke()
+    ctx.fillStyle = '#3a3f47'; for (const [x, y] of [[-hw, -hh], [hw - 14, -hh], [-hw, hh - 14], [hw - 14, hh - 14]]) ctx.fillRect(x, y, 14, 14)
   } else if (cargo === CARGOS.piano) {
     rr(ctx, -hw, -hh, cargo.w, cargo.h, 8, '#1d1f24')
     ctx.fillStyle = '#34373e'; ctx.fillRect(-hw + 8, -hh + 8, cargo.w - 16, cargo.h - 34)
@@ -798,8 +915,8 @@ function drawSnowfall(ctx, W, H, now) {
 
 function drawMinimap(ctx, W, H, course, p, gt) {
   const [CW, CH] = course.size
-  const mh = Math.min(150, H * 0.34), mw = (mh * CW) / CH
-  const x0 = W - mw - 8, y0 = 8
+  const mh = Math.min(130, H * 0.3), mw = (mh * CW) / CH
+  const x0 = W - mw - 10, y0 = 94 // 上の HUD と道のりの帯の下
   const k = mh / CH
   ctx.fillStyle = 'rgba(14,15,19,.72)'
   ctx.fillRect(x0 - 3, y0 - 3, mw + 6, mh + 6)
@@ -888,7 +1005,7 @@ export function renderResult(state) {
   // ひとこと（MVP と、ぶつけた人）
   const notes = []
   const act = r.ranking.filter(p => !p.left && p.push > 2)
-  if (act.length) notes.push(`MVP ${act[0].name}（息ぴったり ${act[0].value}%）`)
+  if (act.length && act[0].value > 0) notes.push(`MVP ${act[0].name}（息ぴったり ${act[0].value}%）`)
   const basher = [...r.ranking].sort((a, b) => b.hits - a.hits)[0]
   if (basher && basher.hits >= 3) notes.push(`ぶつけ番長 ${basher.name}（${basher.hits}回）`)
   if (r.moverHits) notes.push(`${r.moverHits}回ひかれた・はさまれた`)

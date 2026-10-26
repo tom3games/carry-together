@@ -202,6 +202,7 @@ export const COURSES = {
 
 // 荷物。mass が大きいほど遅く、fragile が大きいほどぶつけたときに傷む。
 export const CARGOS = {
+  crate: { name: '木箱', lead: '金具つきの大きな木箱。重いが丈夫', w: 120, h: 92, mass: 1.3, fragile: 0.8, hp: 110, par: 1.3, color: '#b8864e' },
   mattress: { name: 'マットレス', lead: '軽くて丈夫。でも一番長い', w: 160, h: 60, mass: 0.75, fragile: 0.45, hp: 100, par: 0.85, color: '#e9e4f5' },
   sofa: { name: 'ソファ', lead: '長い。ドアと通路では縦にする', w: 150, h: 56, mass: 1, fragile: 1, hp: 100, par: 1, color: '#c8553d' },
   tank: { name: '水槽', lead: '短いが重くて割れやすい', w: 110, h: 72, mass: 1.45, fragile: 2.2, hp: 100, par: 1.45, color: '#4aa3c7' },

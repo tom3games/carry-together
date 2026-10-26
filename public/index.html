@@ -12,7 +12,11 @@
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="theme-color" content="#1b1d22">
+<meta name="theme-color" content="#3f9ff0">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=M+PLUS+Rounded+1c:wght@500;800;900&family=Yomogi&display=swap">
 <link rel="stylesheet" href="/style.css">
 <script>
   // 起動に失敗したときに原因を画面に出す（module の読み込み自体が失敗すると中の catch は動かないため、素の script で拾う）
@@ -42,78 +46,108 @@
   })()
 </script>
 </head>
-<body>
+<body data-screen="home">
 <div id="bootErr" class="boot-err" hidden></div>
 
 <header class="top">
-  <span class="logo" id="logo"><svg viewBox="0 0 32 20" aria-hidden="true"><rect x="5" y="4" width="22" height="12" rx="2" fill="#e0703e"/><circle cx="3.5" cy="10" r="3" fill="#ffcf3a"/><circle cx="28.5" cy="10" r="3" fill="#5ad1ff"/><circle cx="16" cy="1.8" r="1.8" fill="#ff7aa8"/><circle cx="16" cy="18.2" r="1.8" fill="#8be36b"/></svg>みんなで運べ！</span>
+  <span class="mini-logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-4 9 4v9l-9 4-9-4z" fill="#d9a465" stroke="#2a2119" stroke-width="2" stroke-linejoin="round"/><path d="M3 8l9 4 9-4M12 12v9" fill="none" stroke="#2a2119" stroke-width="2"/></svg>みんなで運べ！</span>
   <span class="net" id="net" data-s="connecting">接続しています</span>
 </header>
 
 <main>
-  <section id="home" class="card" hidden>
-    <h1 id="homeTitle">みんなで運べ！</h1>
-    <p id="homeLead" class="lead">全員で1つの大きな荷物を持って、ゴールまで運ぶ。押す向きがそろわないと回り出す。</p>
-    <label class="field">ニックネーム
-      <input id="name" maxlength="12" autocomplete="nickname" placeholder="例: たろう" enterkeyhint="done">
-    </label>
-    <button id="createBtn" class="primary">部屋を作る</button>
-    <details id="joinBox">
-      <summary>参加コードで入る</summary>
-      <div class="row">
-        <input id="code" maxlength="4" inputmode="latin" autocapitalize="characters" placeholder="ABCD" aria-label="参加コード">
-        <button id="joinBtn">参加</button>
-      </div>
-    </details>
-    <div id="howto" class="howto">
-      <p class="howto-h">遊び方（2〜8人・1回2分）</p>
-      <ol>
-        <li>1人ずつ荷物の持ち手が決まる（前・後ろ・左・右…）</li>
-        <li>スティックで自分の持ち手を押す。全員の力を足した向きに進む</li>
-        <li>ばらばらに押すと回る。外へ引っぱり合うと荷物が裂ける</li>
-        <li>壁にぶつける・車にひかれると傷む。真ん中の印が穴に入ると落ちる</li>
-        <li>かけ声ボタン（せーの・右回り…）で声をそろえて、時間内にゴールへ</li>
-      </ol>
-      <p class="howto-s">コースは倉庫・横断歩道・雪道・工場・マンションの5つ。速く傷めずに着くと金メダル</p>
+  <section id="home" class="screen" hidden>
+    <div class="hero">
+      <svg class="logo-svg" viewBox="0 0 420 240" role="img" aria-label="みんなで運べ！">
+        <defs>
+          <linearGradient id="lgOrange" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe94a"/><stop offset=".55" stop-color="#ffb21e"/><stop offset="1" stop-color="#ff6a12"/></linearGradient>
+        </defs>
+        <g transform="rotate(-7 210 120)">
+          <path d="M18 70 L60 46 L118 52 L170 30 L238 40 L300 22 L350 40 L402 34 L392 92 L408 140 L380 176 L396 214 L330 206 L262 222 L190 206 L120 218 L64 200 L30 210 L40 160 L12 120 Z" fill="#17120e"/>
+          <path d="M8 96l-8 4M404 70l12-6M370 218l14 10M44 214l-10 12M300 16l6-10" stroke="#17120e" stroke-width="7" stroke-linecap="round"/>
+          <circle cx="412" cy="112" r="5" fill="#17120e"/><circle cx="6" cy="150" r="4" fill="#17120e"/><circle cx="236" cy="230" r="4" fill="#17120e"/>
+          <text x="40" y="104" font-family="M PLUS Rounded 1c, Hiragino Maru Gothic ProN, sans-serif" font-weight="900" font-size="62" fill="#ffffff" stroke="#17120e" stroke-width="4" paint-order="stroke">みんなで</text>
+          <text x="70" y="196" font-family="M PLUS Rounded 1c, Hiragino Maru Gothic ProN, sans-serif" font-weight="900" font-size="90" fill="url(#lgOrange)" stroke="#17120e" stroke-width="6" paint-order="stroke">運べ！</text>
+          <g transform="translate(352 86) scale(.85)" fill="#fff" stroke="#fff" stroke-linecap="round" stroke-width="7">
+            <circle cx="-22" cy="-30" r="8" stroke="none"/><circle cx="34" cy="-30" r="8" stroke="none"/>
+            <rect x="-6" y="-24" width="26" height="18" rx="2" stroke="none"/>
+            <path d="M-22-20v26M-22 6l-10 18M-22 6l8 18M-22-12l14-4" fill="none"/>
+            <path d="M34-20v26M34 6l-8 18M34 6l10 18M34-12l-14-4" fill="none"/>
+          </g>
+        </g>
+      </svg>
+      <p class="hand hand-1">2〜8人で協力して<br>荷物を運べ！</p>
+      <p class="hand hand-2">壊してもいい、<br>それで進める。</p>
+    </div>
+    <div class="slip">
+      <p class="slip-head"><span>お届け伝票</span><span>一緒に運ぶから楽しい！</span></p>
+      <label class="field"><span>運ぶ人の名前</span>
+        <input id="name" maxlength="12" autocomplete="nickname" placeholder="例: たろう" enterkeyhint="done">
+      </label>
+      <button id="createBtn" class="btn primary">部屋を作る</button>
+      <details id="joinBox">
+        <summary>参加コードで入る</summary>
+        <div class="row">
+          <input id="code" maxlength="4" inputmode="latin" autocapitalize="characters" placeholder="ABCD" aria-label="参加コード">
+          <button id="joinBtn" class="btn">参加</button>
+        </div>
+      </details>
+      <button id="howBtn" class="btn ghost">遊び方を見る</button>
     </div>
   </section>
 
-  <section id="lobby" class="card" hidden>
-    <div class="lobby-top">
-      <div><p class="muted">参加コード</p><p class="code" id="roomCode"></p></div>
-      <p class="muted"><span id="count"></span></p>
-    </div>
-    <div class="row">
-      <input id="invite" readonly aria-label="招待URL">
-      <button id="copyBtn">招待</button>
-    </div>
-    <ul id="players" class="players"></ul>
-    <div id="setup" class="setup">
-      <div class="pick" id="coursePick"></div>
-      <div class="pick" id="cargoPick"></div>
-    </div>
-    <p id="lobbyHint" class="hint"></p>
-    <div class="row lobby-actions">
-      <button id="leaveBtn" class="ghost">部屋を出る</button>
-      <button id="startBtn" class="primary grow" hidden>スタート</button>
+  <section id="lobby" class="screen" hidden>
+    <div class="slip lobby">
+      <div class="lobby-top">
+        <div><p class="muted">伝票番号（参加コード）</p><p class="code" id="roomCode"></p></div>
+        <p class="count" id="count"></p>
+      </div>
+      <div class="row">
+        <input id="invite" readonly aria-label="招待URL">
+        <button id="copyBtn" class="btn">招待</button>
+      </div>
+      <ul id="players" class="players"></ul>
+      <div id="setup" class="setup">
+        <div class="pick" id="coursePick"></div>
+        <div class="pick" id="cargoPick"></div>
+      </div>
+      <p id="lobbyHint" class="hint"></p>
+      <div class="row lobby-actions">
+        <button id="leaveBtn" class="btn ghost">部屋を出る</button>
+        <button id="startBtn" class="btn primary grow" hidden>スタート</button>
+      </div>
     </div>
   </section>
 
   <section id="game" hidden>
     <div id="stage" class="stage"></div>
-    <button id="quitBtn" class="ghost small quit">退出</button>
+    <button id="quitBtn" class="btn small quit" aria-label="退出"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </section>
 
-  <section id="result" class="card" hidden>
-    <h2 id="resultTitle" class="result-title"></h2>
-    <div id="resultBody"></div>
-    <p id="resultHint" class="hint"></p>
-    <div class="row">
-      <button id="rematchBtn" class="primary grow" hidden>もう一回</button>
-      <button id="lobbyBtn" class="ghost" hidden>ロビーへ</button>
+  <section id="result" class="screen" hidden>
+    <div class="slip result">
+      <h2 id="resultTitle" class="result-title"></h2>
+      <div id="resultBody"></div>
+      <p id="resultHint" class="hint"></p>
+      <div class="row result-actions">
+        <button id="lobbyBtn" class="btn ghost" hidden>ロビーへ</button>
+        <button id="rematchBtn" class="btn primary grow" hidden>もう一回</button>
+      </div>
     </div>
   </section>
 </main>
+
+<div id="howto" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="howtoTitle">
+  <div class="slip modal-card">
+    <p class="slip-head" id="howtoTitle"><span>遊び方</span><span>3つだけ</span></p>
+    <ol class="steps">
+      <li><svg viewBox="0 0 80 64" aria-hidden="true"><rect x="10" y="22" width="60" height="22" rx="4" fill="#c8553d" stroke="#2a2119" stroke-width="3"/><circle cx="6" cy="33" r="6" fill="#ffcf3a" stroke="#2a2119" stroke-width="2.5"/><circle cx="74" cy="33" r="6" fill="#5ad1ff" stroke="#2a2119" stroke-width="2.5"/><circle cx="40" cy="14" r="6" fill="#ff7aa8" stroke="#2a2119" stroke-width="2.5"/><circle cx="40" cy="52" r="6" fill="#8be36b" stroke="#2a2119" stroke-width="2.5"/></svg><p><b>持ち手が1人1つ決まる</b>前・後ろ・左・右。自分の場所は足もとの白い輪</p></li>
+      <li><svg viewBox="0 0 80 64" aria-hidden="true"><circle cx="40" cy="34" r="24" fill="#f3e7cf" stroke="#2a2119" stroke-width="3"/><circle cx="52" cy="24" r="10" fill="#ffc83a" stroke="#2a2119" stroke-width="3"/><path d="M58 30c6 4 10 10 10 18l-6 10H50l-6-8 4-14z" fill="#ffd9b3" stroke="#2a2119" stroke-width="3" stroke-linejoin="round"/><path d="M30 44l-8 8M22 44v8h8" fill="none" stroke="#d3312c" stroke-width="3" stroke-linecap="round"/></svg><p><b>スティックで押す</b>全員の力を足した向きに進む。ばらばらだと回る、引っぱり合うと裂ける</p></li>
+      <li><svg viewBox="0 0 80 64" aria-hidden="true"><rect x="8" y="12" width="64" height="40" rx="20" fill="#fff8ea" stroke="#2a2119" stroke-width="3"/><path d="M28 56l6-6h10" fill="#fff8ea" stroke="#2a2119" stroke-width="3"/><text x="40" y="38" text-anchor="middle" font-family="Dela Gothic One, sans-serif" font-size="15" fill="#2a2119">せーの</text></svg><p><b>かけ声でそろえる</b>ボタンでみんなの頭に吹き出し。壁・車・穴に気をつけて、緑のゴールへ</p></li>
+    </ol>
+    <p class="howto-s">コースは倉庫・横断歩道・雪の橋・工場・マンションの5つ。速く傷めずに着くと金メダル。PC は矢印キーと数字キー 1〜6</p>
+    <button id="howClose" class="btn primary">わかった</button>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" hidden></div>
 <footer class="foot"><span id="ping"></span></footer>
