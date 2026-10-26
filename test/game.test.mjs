@@ -144,18 +144,28 @@ test('ソファは横向きのままではドアを通れない（縦にすれ�
   afterCountdown(g)
   run(g, 10, allPush(4, 0, -1))
   const v = g.view('p0')
-  assert.ok(v.y > 1800, `横向きでドアを抜けた y=${v.y}`)
+  const door = COURSES.warehouse.walls.find(w => w[2] === 390 && w[3] === 70) // 最初のドア（幅140）の左の壁
+  assert.ok(v.y > door[1] + door[3], `横向きでドアを抜けた y=${v.y}`)
+  assert.ok(v.y < COURSES.warehouse.start.y - 200, 'ドアまで進んでいない')
   assert.equal(g.isOver(), false)
 })
 
-test('荷物の真ん中が穴に入ると落ちて失敗', () => {
+test('穴に落ちると、少し落ちる様子を見せてからスタート（チェックポイントが無いコース）に戻る。耐久と時間が減る', () => {
   const g = createGame(players(2), { course: '_test', rng: fixed })
   afterCountdown(g)
-  run(g, 5, allPush(2, 0.6, 0))
-  assert.equal(g.isOver(), true)
-  const r = g.result()
-  assert.equal(r.outcome, 'fall')
-  assert.equal(r.win, false)
+  const t0 = g.view('p0').time
+  for (let t = 0; t < 5 && !g.view('p0').dr; t += 0.05) { g.input('p0', { type: 'push', x: 0.6, y: 0 }); g.input('p1', { type: 'push', x: 0.6, y: 0 }); g.tick(0.05) }
+  const v = g.view('p0')
+  assert.equal(v.dr, 1, '落ちていない')
+  assert.equal(v.fl, 1)
+  assert.equal(g.isOver(), false, '落ちても終わらない')
+  run(g, PHYS.fallHold + 0.1)
+  const w = g.view('p0')
+  assert.equal(w.dr, 0)
+  assert.deepEqual([w.x, w.y], [COURSES._test.start.x, COURSES._test.start.y])
+  assert.equal(w.hp, 100 - PHYS.fallHp)
+  assert.ok(w.time <= t0 - PHYS.fallTime - 1, `時間が減っていない ${t0} → ${w.time}`)
+  assert.equal(g.result().falls, 1)
 })
 
 test('ゴールに入るとクリア。スコアは 1000 + 残り秒×10 + 耐久×5', () => {
@@ -174,21 +184,23 @@ test('ゴールに入るとクリア。スコアは 1000 + 残り秒×10 + 耐�
 
 test('全コース・全荷物を、2人でも8人でも、そろえて押せば制限時間内に運べる（自動操縦）', () => {
   const realCourses = Object.keys(COURSES).filter(c => !c.startsWith('_'))
-  assert.equal(realCourses.length, 5)
+  assert.equal(realCourses.length, 6)
   assert.equal(Object.keys(CARGOS).length, 5)
   for (const course of realCourses) {
     for (const cargo of Object.keys(CARGOS)) {
       for (const n of [2, 8]) {
         const g = createGame(players(n), { course, cargo, rng: fixed })
         const pilot = makePilot(course, cargo, n)
-        run(g, 260, v => {
+        run(g, 900, v => {
           const b = g._debug().body
           const ins = pilot.inputs({ ...v, vx: b.vx, vy: b.vy })
           return Object.fromEntries(v.hs.map(([id], h) => [id, ins[h]]))
         })
         const r = g.result()
         assert.equal(r.outcome, 'goal', `${course} ${cargo} ${n}人: ${r.outcome} 進み ${r.progress}%`)
-        assert.ok(r.time < COURSES[course].timeLimit)
+        const cap = COURSES[course].timeLimit + COURSES[course].checkpoints.reduce((a, c) => a + c.bonus, 0)
+        assert.ok(r.time < cap, `${course} ${cargo} ${n}人: ${r.time}秒 / ${cap}`)
+        assert.equal(r.checkpoints, COURSES[course].checkpoints.length)
         assert.ok(['gold', 'silver', 'bronze'].includes(r.medal))
       }
     }
@@ -206,8 +218,9 @@ test('コースの通り道は壁と穴の中を通らず、最後はゴール�
     for (const [x, y] of c.path) for (const [px, py, pw, ph] of c.pits) assert.ok(!(x > px && x < px + pw && y > py && y < py + ph), `${id}: 通り道 ${x},${y} が穴の中`)
     assert.ok(c.medals.gold < c.medals.silver, id)
   }
-  assert.ok(pathProgress(COURSES.stairs.path, 710, 1840) > 0.99)
-  assert.ok(pathProgress(COURSES.stairs.path, 290, 1840) < 0.01)
+  const sp = COURSES.stairs.path
+  assert.ok(pathProgress(sp, sp[sp.length - 1][0], sp[sp.length - 1][1]) > 0.99)
+  assert.ok(pathProgress(sp, sp[0][0], sp[0][1]) < 0.01)
 })
 
 test('動く障害物は時刻だけで位置が決まり、車は端まで行くと出直す。ピストンは往復する', () => {
@@ -414,8 +427,130 @@ test('でたらめに押し続けても、荷物は壁を抜けず、世界の�
 test('全力でドアの壁に突っ込んでも、1回の衝突で壊れきらない（ソファ）', () => {
   const g = createGame(players(2), { cargo: 'sofa', rng: fixed })
   afterCountdown(g)
-  run(g, 4, allPush(2, 0, -1))
+  run(g, 8, allPush(2, 0, -1))
   const v = g.view('p0')
   assert.equal(g.isOver(), false, g.isOver() ? g.result().outcome : '')
   assert.ok(v.hp >= 40 && v.hp < 100, `hp=${v.hp}`)
 })
+
+// ---- ロングコースの仕掛け（テスト用の小さなコースで1つずつ確かめる）
+const mini = extra => ({ name: '仕掛け', size: [1000, 1400], timeLimit: 60, start: { x: 500, y: 1200, a: -Math.PI / 2 }, walls: [[0, 0, 1000, 40], [0, 1360, 1000, 40], [0, 0, 40, 1400], [960, 0, 40, 1400]], pits: [], goal: [400, 60, 200, 80], ...extra })
+const upFor = (g, sec, n = 2) => run(g, sec, allPush(n, 0, -1))
+
+test('チェックポイントを通ると時間がふえ、その先で落ちるとそこから再開する', () => {
+  COURSES._cp = mini({ checkpoints: [{ r: [40, 900, 920, 100], at: [500, 950, -Math.PI / 2], bonus: 20 }], pits: [[40, 500, 920, 100]] })
+  const g = createGame(players(2), { course: '_cp', rng: fixed })
+  afterCountdown(g)
+  const t0 = g.view('p0').time
+  for (let t = 0; t < 10 && g.view('p0').cp < 0; t += 0.05) { g.input('p0', { type: 'push', x: 0, y: -1 }); g.input('p1', { type: 'push', x: 0, y: -1 }); g.tick(0.05) }
+  const v = g.view('p0')
+  assert.equal(v.cp, 0)
+  assert.ok(v.time > t0, `ボーナスが入らない ${t0} → ${v.time}`)
+  for (let t = 0; t < 10 && !g.view('p0').fl; t += 0.05) { g.input('p0', { type: 'push', x: 0, y: -1 }); g.input('p1', { type: 'push', x: 0, y: -1 }); g.tick(0.05) }
+  run(g, PHYS.fallHold + 0.1)
+  const w = g.view('p0')
+  assert.deepEqual([w.x, w.y], [500, 950], '直前のチェックポイントから再開していない')
+  const r = g.result()
+  assert.equal(r.checkpoints, 1); assert.equal(r.falls, 1)
+  delete COURSES._cp
+})
+
+test('耐久が残り少ないときに落ちると、戻ったところで壊れて終わる', () => {
+  COURSES._fall = mini({ pits: [[40, 900, 920, 200]] })
+  const g = createGame(players(2), { course: '_fall', cargo: 'tank', rng: fixed })
+  afterCountdown(g)
+  // 外へ引っぱって耐久を減らしてから落とす
+  const f = g._debug().seats.find(s => s.label === '前').id, b = g._debug().seats.find(s => s.label === '後ろ').id
+  for (let t = 0; t < 8 && g.view('p0').hp > 10; t += 0.05) { g.input(f, { type: 'push', x: 1, y: 0 }); g.input(b, { type: 'push', x: -1, y: 0 }); g.tick(0.05) }
+  upFor(g, 6)
+  run(g, PHYS.fallHold + PHYS.endHold + 0.3)
+  assert.equal(g.isOver(), true)
+  assert.equal(g.result().outcome, 'broken')
+  delete COURSES._fall
+})
+
+test('閉まった壁（シャッター）は通れず、開くと通れる。荷物が下にいる間は閉まらない', () => {
+  COURSES._gate = mini({ gates: [{ kind: 'shutter', r: [40, 800, 920, 40], period: 8, open: 0.5, phase: 0.5 }] }) // 最初の4秒は閉じている
+  const g = createGame(players(2), { course: '_gate', rng: fixed })
+  afterCountdown(g)
+  upFor(g, 3.5)
+  assert.equal(g.view('p0').gs, '1')
+  assert.ok(g.view('p0').y > 840 + 70, `閉まった壁を抜けた y=${g.view('p0').y}`)
+  upFor(g, 4)
+  assert.equal(g.view('p0').gs, '0')
+  assert.ok(g.view('p0').y < 800, `開いても通れない y=${g.view('p0').y}`)
+  // 下にいる間に閉まる時刻が来ても閉まらない
+  COURSES._gate2 = mini({ start: { x: 500, y: 820, a: -Math.PI / 2 }, gates: [{ kind: 'shutter', r: [40, 800, 920, 40], period: 8, open: 0.5, phase: 0.5 }] })
+  const h = createGame(players(2), { course: '_gate2', rng: fixed })
+  afterCountdown(h); run(h, 1)
+  assert.equal(h.view('p0').gs, '0', '荷物の上で閉まった')
+  delete COURSES._gate; delete COURSES._gate2
+})
+
+test('回るバーに当たると傷んではじかれる。続けて何度も数えない', () => {
+  COURSES._spin = mini({ spinners: [{ x: 500, y: 900, len: 600, thick: 40, w: 1.2, phase: 0, hurt: 10 }] })
+  const g = createGame(players(2), { course: '_spin', rng: fixed })
+  afterCountdown(g); upFor(g, 4)
+  const v = g.view('p0')
+  assert.ok(v.mh >= 1, '当たっていない')
+  assert.ok(v.hp < 100)
+  assert.ok(v.mh <= 3, `何度も数えた ${v.mh}`)
+  delete COURSES._spin
+})
+
+test('落ちてくる荷物は、着地の瞬間に下にいると当たる（影の予告の間は当たらない）', () => {
+  COURSES._drop = mini({ start: { x: 500, y: 700, a: -Math.PI / 2 }, drops: [{ x: 500, y: 700, r: 60, period: 6, phase: 0.5, warn: 2, hurt: 16 }] })
+  const g = createGame(players(2), { course: '_drop', rng: fixed })
+  run(g, PHYS.countdown + 2.9) // 着地は3秒の時
+  assert.equal(g.view('p0').hp, 100)
+  run(g, 0.2)
+  assert.equal(g.view('p0').hp, 100 - 16)
+  delete COURSES._drop
+})
+
+test('動く床に乗っている間は穴に落ちず、床と一緒に運ばれる', () => {
+  COURSES._raft = mini({ start: { x: 500, y: 700, a: -Math.PI / 2 }, pits: [[40, 300, 920, 700]], platforms: [{ w: 300, h: 300, swing: { a: [500, 700], b: [500, 450], period: 6 }, phase: 0 }] })
+  const g = createGame(players(2), { course: '_raft', rng: fixed })
+  afterCountdown(g); run(g, 3)
+  const v = g.view('p0')
+  assert.equal(v.fl, 0, '床の上で落ちた')
+  assert.ok(v.y < 500, `床と一緒に動いていない y=${v.y}`)
+  delete COURSES._raft
+})
+
+test('崩れる床は乗ってしばらくで抜けて落ち、やり直すと元に戻る', () => {
+  COURSES._crumble = mini({ start: { x: 500, y: 700, a: -Math.PI / 2 }, pits: [[40, 300, 920, 700]], crumbles: [{ r: [400, 600, 200, 200] }] })
+  const g = createGame(players(2), { course: '_crumble', rng: fixed })
+  afterCountdown(g); run(g, 1)
+  assert.equal(g.view('p0').cr, '1', 'きしみ出さない')
+  assert.equal(g.view('p0').fl, 0)
+  run(g, PHYS.crumbleDelay)
+  assert.equal(g.view('p0').fl, 1, '抜けても落ちない')
+  run(g, PHYS.fallHold + 0.1)
+  assert.equal(g.view('p0').cr, '1', '戻った後もう一度乗ってきしむ')
+  delete COURSES._crumble
+})
+
+test('送風機は時間で強くなって止み、強い間だけ横へ流される', () => {
+  COURSES._wind = mini({ start: { x: 300, y: 700, a: 0 }, zones: [{ type: 'wind', r: [40, 40, 920, 1320], vx: 80, vy: 0, period: 4, phase: 0 }] })
+  const g = createGame(players(2), { course: '_wind', rng: fixed })
+  afterCountdown(g); run(g, 1)
+  const x1 = g.view('p0').x
+  assert.ok(x1 > 306, `風が吹かない x=${x1}`)
+  run(g, 1.6); const x2 = g.view('p0').x
+  run(g, 1.0); const x3 = g.view('p0').x
+  assert.ok(x3 - x2 < (x1 - 300), '止んでいる間も同じように流される')
+  delete COURSES._wind
+})
+
+test('ロングコース「引越し大移動」は5つの街をつなぎ、区間ごとにチェックポイントがある', () => {
+  const c = COURSES.grand
+  assert.deepEqual([...new Set(c.regions.map(r => r.theme))], ['wood', 'street', 'snow', 'factory', 'apartment'])
+  assert.ok(c.checkpoints.length >= 8)
+  assert.ok(c.size[1] > 2.5 * 5000)
+  for (const id of ['warehouse', 'crosswalk', 'snow', 'factory', 'stairs']) {
+    assert.equal(COURSES[id].checkpoints.length, 2, `${id}: 3区間でない`)
+    assert.ok(COURSES[id].size[1] >= 5000, `${id}: 長くなっていない`)
+  }
+})
+

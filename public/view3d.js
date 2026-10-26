@@ -4,7 +4,7 @@
 // スティックを上に倒す＝画面の奥へ押す、がずっと一致する。手前へ戻る区間では自動で高く上がって見下ろす。
 // 荷物より手前の壁は上を切り取って、荷物と運び手が隠れないようにする。
 import * as THREE from './vendor/three.module.js'
-import { moverAt, handleOffsets, PLAYER_COLORS, CARGOS } from './stages.js'
+import { moverAt, handleOffsets, PLAYER_COLORS, CARGOS, spinnerBox, dropState, windPower } from './stages.js'
 
 const S = 0.01
 const CHIBI = 1.25 // 運び手は大きめに描く（表情が見えるように）
@@ -229,17 +229,33 @@ export function createView3D(canvas, { course, cargo, n, me }) {
     }
   }
 
-  // ---- 床: 2D の絵（床・飾り・仕掛け・ゴール・穴の縁）を1枚のテクスチャにして貼る。穴の部分は透明にして下が見えるように
-  const fk = Math.min(0.8, 2048 / Math.max(CW, CH))
-  const fc = document.createElement('canvas'); fc.width = Math.round(CW * fk); fc.height = Math.round(CH * fk)
-  const fctx = fc.getContext('2d')
-  fctx.scale(fk, fk)
-  ;(createView3D.paintFloor || (() => {}))(fctx, course)
-  for (const [x, y, w, h] of course.pits) fctx.clearRect(x, y, w, h)
-  const ftex = new THREE.CanvasTexture(fc); ftex.colorSpace = THREE.SRGBColorSpace; ftex.anisotropy = 4
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), lam(0xffffff, { map: ftex, alphaTest: 0.5 }))
-  floor.rotation.x = -Math.PI / 2; floor.position.set(W / 2, 0, H / 2); floor.receiveShadow = true
-  scene.add(floor)
+  // ---- 床: 2D の絵（床・飾り・仕掛け・ゴール・穴の縁）を、縦 CHUNK ずつの板に貼る。穴の部分は透明にして下が見えるように。
+  // 長いコースでも画質が落ちないよう、カメラの近くの板だけ作り、遠くなったら捨てる
+  const CHUNK = 1600, FK = 0.6
+  const themeAt = y => { for (const r of course.regions || []) if (y >= r.y0 && y <= r.y1) return r.theme; return course.theme }
+  const chunks = new Map()
+  function makeChunk(i) {
+    const y0 = i * CHUNK, h = Math.min(CHUNK, CH - y0)
+    const fc = document.createElement('canvas'); fc.width = Math.round(CW * FK); fc.height = Math.round(h * FK)
+    const fctx = fc.getContext('2d')
+    fctx.scale(FK, FK); fctx.translate(0, -y0)
+    ;(createView3D.paintFloor || (() => {}))(fctx, course)
+    for (const [x, y, w, hh] of course.pits) fctx.clearRect(x, y, w, hh)
+    const ftex = new THREE.CanvasTexture(fc); ftex.colorSpace = THREE.SRGBColorSpace; ftex.anisotropy = 4
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(W, h * S), lam(0xffffff, { map: ftex, alphaTest: 0.5 }))
+    m.rotation.x = -Math.PI / 2; m.position.set(W / 2, 0, (y0 + h / 2) * S); m.receiveShadow = true
+    scene.add(m)
+    return m
+  }
+  function updateChunks(zWorld, all = false) {
+    const ci = Math.floor(zWorld / CHUNK), n = Math.ceil(CH / CHUNK)
+    let made = 0
+    for (let i = Math.max(0, ci - 1); i <= Math.min(n - 1, ci + 2); i++) {
+      if (!chunks.has(i) && (all || made < 1)) { chunks.set(i, makeChunk(i)); made++ }
+    }
+    for (const [i, m] of chunks) if (i < ci - 2 || i > ci + 3) { scene.remove(m); m.geometry.dispose(); m.material.map.dispose(); m.material.dispose(); chunks.delete(i) }
+  }
+  updateChunks(course.start.y, true)
   // 周りの地面（真ん中に置くと穴の中から見えるので4枚に分ける）と、遠くの木
   for (const [x, z, w, d] of [[W / 2, -30, W + 120, 60], [W / 2, H + 30, W + 120, 60], [-30, H / 2, 60, H], [W + 30, H / 2, 60, H]]) {
     const o = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lam(theme.ground))
@@ -247,7 +263,7 @@ export function createView3D(canvas, { course, cargo, n, me }) {
   }
   {
     const trunk = new THREE.CylinderGeometry(0.12, 0.16, 0.9, 6), crown = new THREE.ConeGeometry(0.8, 1.8, 7)
-    const N = 40
+    const N = Math.min(320, Math.round(H * 0.9))
     const ti = new THREE.InstancedMesh(trunk, toon(0x7a5230), N), ci = new THREE.InstancedMesh(crown, toon(course.theme === 'snow' ? 0xe8f2fa : 0x3f9a4a), N)
     const mtx = new THREE.Matrix4()
     for (let i = 0; i < N; i++) {
@@ -264,16 +280,17 @@ export function createView3D(canvas, { course, cargo, n, me }) {
 
   // 穴: 内側だけ見える箱（深さが見える）。雪のコースは水面
   for (const [x, y, w, h] of course.pits) {
-    const depth = course.theme === 'snow' ? 0.6 : 2.4
+    const wet = themeAt(y + h / 2) === 'snow'
+    const depth = wet ? 0.6 : 2.4
     const geo = new THREE.BoxGeometry(w * S, depth, h * S)
-    const col = new THREE.Color(course.theme === 'snow' ? 0x24557d : 0x3a2a1e)
+    const col = new THREE.Color(wet ? 0x24557d : 0x3a2a1e)
     const pos = geo.attributes.position, cols = []
     for (let i = 0; i < pos.count; i++) { const k = pos.getY(i) > 0 ? 1 : 0.12; cols.push(col.r * k, col.g * k, col.b * k) }
     geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3))
     const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide }))
     m.position.set((x + w / 2) * S, -depth / 2 - 0.001, (y + h / 2) * S)
     scene.add(m)
-    if (course.theme === 'snow') {
+    if (wet) {
       const water = new THREE.Mesh(new THREE.PlaneGeometry(w * S, h * S), new THREE.MeshPhongMaterial({ color: 0x2e8fd0, shininess: 90, specular: 0xffffff, transparent: true, opacity: 0.92 }))
       water.rotation.x = -Math.PI / 2; water.position.set((x + w / 2) * S, -0.22, (y + h / 2) * S)
       scene.add(water)
@@ -335,21 +352,25 @@ export function createView3D(canvas, { course, cargo, n, me }) {
   // ---- 壁: 大きい壁は箱（胴と天板）、小さい壁はコースらしい小物にする
   const outerWall = ([x, y, w, h]) => (x <= 0 && w >= CW - 1) || (y <= 0 && h >= CH - 1) || (y + h >= CH - 1 && w >= CW - 1) || (x + w >= CW - 1 && h >= CH - 1)
   const smalls = [], bigs = []
-  for (const w of course.walls) (!outerWall(w) && w[2] * w[3] <= 16000 ? smalls : bigs).push(w)
-  {
+  for (const w of course.walls) (!outerWall(w) && Math.max(w[2], w[3]) <= 150 && Math.min(w[2], w[3]) >= 30 ? smalls : bigs).push(w)
+  // 壁は場所のテーマごとにまとめて描く（長いコースは街並みが変わる）
+  const wallTheme = w => (outerWall(w) ? course.theme : themeAt(w[1] + w[3] / 2))
+  for (const th of new Set(bigs.map(wallTheme))) {
+    const T = THEMES[th] || theme
+    const list = bigs.filter(w => wallTheme(w) === th)
     const geo = new THREE.BoxGeometry(1, 1, 1)
-    const body = new THREE.InstancedMesh(geo, cutaway(toon(theme.wall)), bigs.length)
-    const top = new THREE.InstancedMesh(geo, cutaway(toon(theme.cap)), bigs.length)
+    const body = new THREE.InstancedMesh(geo, cutaway(toon(T.wall)), list.length)
+    const top = new THREE.InstancedMesh(geo, cutaway(toon(T.cap)), list.length)
     const mtx = new THREE.Matrix4(), q = new THREE.Quaternion()
-    bigs.forEach(([x, y, w, h], i) => {
-      const hh = outerWall([x, y, w, h]) ? theme.wallH * 0.7 : theme.wallH
+    list.forEach(([x, y, w, h], i) => {
+      const hh = outerWall([x, y, w, h]) ? T.wallH * 0.7 : T.wallH
       mtx.compose(v3((x + w / 2) * S, hh / 2, (y + h / 2) * S), q, v3(w * S, hh, h * S)); body.setMatrixAt(i, mtx)
       mtx.compose(v3((x + w / 2) * S, hh + 0.03, (y + h / 2) * S), q, v3(w * S + 0.04, 0.06, h * S + 0.04)); top.setMatrixAt(i, mtx)
     })
     body.castShadow = true; body.receiveShadow = true
     scene.add(body, top)
   }
-  for (const [x, y, w, h] of smalls) scene.add(prop(course.theme, (x + w / 2) * S, (y + h / 2) * S, w * S, h * S))
+  for (const [x, y, w, h] of smalls) scene.add(prop(themeAt(y + h / 2), (x + w / 2) * S, (y + h / 2) * S, w * S, h * S))
 
   function prop(themeName, cx, cz, w, d) {
     const g = new THREE.Group(); g.position.set(cx, 0, cz)
@@ -398,11 +419,12 @@ export function createView3D(canvas, { course, cargo, n, me }) {
   // 世界の北の外に建物の正面（街角）。横断歩道のコースはラーメン屋
   {
     const facade = new THREE.Group()
-    const col = { wood: 0xf0dcb8, street: 0xf3e3c3, snow: 0x9b6a3c, factory: 0x6a8296, apartment: 0xf0d2aa }[course.theme] || 0xf0dcb8
+    const goalTheme = themeAt(course.goal[1])
+    const col = { wood: 0xf0dcb8, street: 0xf3e3c3, snow: 0x9b6a3c, factory: 0x6a8296, apartment: 0xf0d2aa }[goalTheme] || 0xf0dcb8
     const wall = new THREE.Mesh(new THREE.BoxGeometry(W + 4, 4.2, 0.6), toon(col)); wall.position.set(W / 2, 2.1, -0.5); facade.add(wall)
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(W + 4.4, 0.35, 1.8), toon(course.theme === 'snow' ? 0xffffff : 0xb5452d)); roof.position.set(W / 2, 4.3, -0.3); facade.add(roof)
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(W + 4.4, 0.35, 1.8), toon(goalTheme === 'snow' ? 0xffffff : 0xb5452d)); roof.position.set(W / 2, 4.3, -0.3); facade.add(roof)
     for (let i = 0; i < 6; i++) { const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), new THREE.MeshBasicMaterial({ color: 0xfff2c2 })); win.position.set(W / 2 - 3.75 + i * 1.5, 3.1, -0.19); facade.add(win) }
-    if (course.theme === 'street') {
+    if (goalTheme === 'street') {
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.8), new THREE.MeshBasicMaterial({ map: textTexture('ラーメン', { bg: '#d3312c', fg: '#fff8ea', border: '#fff8ea' }) }))
       sign.position.set(1.6, 2.1, -0.18); facade.add(sign)
     }
@@ -475,6 +497,13 @@ export function createView3D(canvas, { course, cargo, n, me }) {
     } else if (m.kind === 'piston') {
       const st = stripeTexture('#ffcc00', '#1b1b1b', 6); st.repeat.set(w / 0.6, 1)
       add(new THREE.BoxGeometry(w, 0.7, d), [toon(0x9aa3ad), toon(0x9aa3ad), toon(0xffffff, { map: st }), toon(0x9aa3ad), toon(0xffffff, { map: st }), toon(0x9aa3ad)], 0, 0.35, 0)
+    } else if (m.kind === 'train') {
+      const b = add(new THREE.BoxGeometry(w, 0.95, d), toon(m.color), 0, 0.6, 0); outline(b, 1.02)
+      add(new THREE.BoxGeometry(w * 0.98, 0.12, d * 0.9), toon(0xe9e4d4), 0, 1.12, 0)
+      const win = new THREE.MeshBasicMaterial({ color: 0xfff6d8 })
+      for (let x = -w / 2 + 0.6; x < w / 2 - 0.5; x += 0.7) for (const sz of [-1, 1]) add(new THREE.BoxGeometry(0.42, 0.32, 0.02), win, x, 0.78, sz * (d / 2 + 0.005)).castShadow = false
+      add(new THREE.BoxGeometry(0.05, 0.2, 0.3), new THREE.MeshBasicMaterial({ color: 0xffe9a0 }), w / 2, 0.55, 0)
+      for (let x = -w / 2 + 0.5; x < w / 2; x += 1.2) for (const sz of [-1, 1]) { const wh = add(new THREE.CylinderGeometry(0.15, 0.15, 0.08, 10), toon(0x222222), x, 0.15, sz * d / 2); wh.rotation.x = Math.PI / 2 }
     } else if (m.kind === 'fork') {
       const b = add(new THREE.BoxGeometry(w * 0.7, 0.5, d), toon(m.color), -w * 0.12, 0.35, 0); outline(b, 1.03)
       add(new THREE.BoxGeometry(w * 0.3, 0.5, d * 0.8), toon(0x1b2733), -w * 0.18, 0.85, 0)
@@ -486,6 +515,101 @@ export function createView3D(canvas, { course, cargo, n, me }) {
       g.add(c.g); g.userData.chibi = c
     }
     return g
+  }
+
+  // ---- ロングコースの仕掛け
+  // 回るバー（紅白の棒と軸）
+  const spinners = (course.spinners || []).map(sp => {
+    const g = new THREE.Group(); g.position.set(sp.x * S, 0, sp.y * S)
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.9, 12), toon(0x3a3f47)); post.position.y = 0.45; post.castShadow = true; g.add(post)
+    const st = stripeTexture('#ffffff', '#d3312c', 4); st.repeat.set(sp.len * S / 0.8, 1)
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(sp.len * S, 0.36, sp.thick * S), toon(0xffffff, { map: st })); bar.position.y = 0.55; bar.castShadow = true; g.add(bar)
+    outline(bar, 1.03)
+    scene.add(g); return { sp, g }
+  })
+  // 開け閉めの壁: 防火シャッターは上から下りる。踏切は棒が倒れる
+  const gates = (course.gates || []).map(gt => {
+    const [x, y, w, h] = gt.r
+    const g = new THREE.Group(); g.position.set((x + w / 2) * S, 0, (y + h / 2) * S)
+    let move
+    if (gt.kind === 'crossing') {
+      const st = stripeTexture('#ffffff', '#d3312c', 3); st.repeat.set(w * S / 0.8, 1)
+      const arms = []
+      for (const side of [-1, 1]) {
+        const px = side * (w * S / 2 - 0.1)
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 8), toon(0x2a2a2a)); pole.position.set(px, 0.8, 0); pole.castShadow = true; g.add(pole)
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshBasicMaterial({ color: 0x5a1a18 })); lamp.position.set(px, 1.5, 0.06); g.add(lamp)
+        const pivot = new THREE.Group(); pivot.position.set(px, 0.85, 0); g.add(pivot)
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(w * S / 2 - 0.1, 0.14, 0.14), toon(0xffffff, { map: st })); arm.position.x = -side * (w * S / 4 - 0.05); arm.castShadow = true; pivot.add(arm)
+        arms.push({ pivot, side, lamp })
+      }
+      move = (closed, k, now) => {
+        for (const a of arms) {
+          a.pivot.rotation.z = a.side * (1 - k) * (Math.PI / 2 - 0.05) * -1
+          a.lamp.material.color.set(closed && Math.floor(now / 300) % 2 ? 0xff3b30 : 0x5a1a18)
+        }
+      }
+    } else {
+      const sh = new THREE.Mesh(new THREE.BoxGeometry(w * S, 1.3, h * S), toon(0x8a939d)); sh.castShadow = true; g.add(sh)
+      for (const side of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.2, h * S + 0.1), toon(0x4b525b)); post.position.set(side * (w * S / 2 + 0.06), 1.1, 0); g.add(post) }
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(w * S + 0.24, 0.3, h * S + 0.2), toon(0x4b525b)); lintel.position.y = 2.2; g.add(lintel)
+      move = (closed, k) => { sh.position.y = 0.65 + (1 - k) * 1.5; sh.scale.y = 1 }
+    }
+    scene.add(g); return { gt, g, move, k: 0 }
+  })
+  // 落ちてくる荷物（影で予告 → 落ちる → 跳ねて消える）
+  const drops = (course.drops || []).map(d => {
+    const shadow = new THREE.Mesh(new THREE.CircleGeometry(d.r * S, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthWrite: false }))
+    shadow.rotation.x = -Math.PI / 2; shadow.position.set(d.x * S, 0.02, d.y * S); scene.add(shadow)
+    const ring = new THREE.Mesh(new THREE.RingGeometry(d.r * S - 0.05, d.r * S, 32), new THREE.MeshBasicMaterial({ color: 0xd3312c, transparent: true, opacity: 0, depthWrite: false }))
+    ring.rotation.x = -Math.PI / 2; ring.position.set(d.x * S, 0.025, d.y * S); scene.add(ring)
+    const box = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.6, 0.75), toon(0xffffff, { map: woodTexture() })); box.castShadow = true; box.visible = false; scene.add(box)
+    // クレーンのフック（上に吊ってある）
+    const hook = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 3, 6), toon(0x333333)); hook.position.set(d.x * S, 6.5, d.y * S); scene.add(hook)
+    return { d, shadow, ring, box }
+  })
+  // 動く床（いかだ）
+  const rafts = (course.platforms || []).map(pf => {
+    const g = new THREE.Group()
+    const n = Math.round(pf.h / 40)
+    for (let i = 0; i < n; i++) { const pl = new THREE.Mesh(new THREE.BoxGeometry(pf.w * S, 0.12, (pf.h / n) * S - 0.03), toon(i % 2 ? 0x9b6a3c : 0xb07a46)); pl.position.set(0, -0.06, (-pf.h / 2 + (i + 0.5) * pf.h / n) * S); pl.receiveShadow = true; g.add(pl) }
+    for (const sx of [-1, 1]) { const log = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, pf.h * S, 10), toon(0x6b4524)); log.rotation.x = Math.PI / 2; log.position.set(sx * (pf.w * S / 2 - 0.05), -0.12, 0); g.add(log) }
+    scene.add(g); return { pf, g }
+  })
+  // 崩れる床（吹き抜けの上の古い板）
+  const planks = (course.crumbles || []).map(q => {
+    const [x, y, w, h] = q.r
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w * S - 0.04, 0.08, h * S - 0.04), toon(0xc49a64))
+    m.position.set((x + w / 2) * S, -0.04, (y + h / 2) * S); m.receiveShadow = true; scene.add(m)
+    return { m, base: m.position.clone(), st: '0', t: 0 }
+  })
+  // チェックポイントの旗（通ると緑になる）
+  const cpFlags = (course.checkpoints || []).map(c => {
+    const [x, y, w, h] = c.r
+    const flags = []
+    for (const fx of [x + 30, x + w - 30]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.2, 8), toon(0x2a2119)); pole.position.set(fx * S, 1.1, (y + h / 2) * S); pole.castShadow = true; scene.add(pole)
+      const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.45), toon(0xffc83a, { side: THREE.DoubleSide })); flag.position.set(fx * S + (fx < x + w / 2 ? 0.36 : -0.36), 1.95, (y + h / 2) * S); flag.userData.flag = true; scene.add(flag)
+      flags.push(flag)
+    }
+    return flags
+  })
+  // 送風機（左の壁の扇風機と、風の筋）
+  const fans = [], streaks = []
+  for (const z of course.zones || []) {
+    if (z.type !== 'wind') continue
+    const [x, y, w, h] = z.r
+    for (let yy = y + 60; yy < y + h; yy += 120) {
+      const g = new THREE.Group(); g.position.set((x + 10) * S, 0.55, yy * S); g.rotation.z = -Math.PI / 2
+      const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.2, 18, 1, true), toon(0x5d636c, { side: THREE.DoubleSide })); g.add(housing)
+      const blades = new THREE.Group(); g.add(blades)
+      for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.04, 0.14), toon(0xffcc00)); b.rotation.y = (i * Math.PI * 2) / 3; blades.add(b) }
+      scene.add(g); fans.push({ z, blades })
+    }
+    const N = 24
+    const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.02, 0.03), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0, depthWrite: false }), N)
+    im.frustumCulled = false; scene.add(im)
+    streaks.push({ z, im, N, seed: Array.from({ length: N }, (_, i) => [((i * 37) % 100) / 100, ((i * 61) % 100) / 100, 0.2 + ((i * 13) % 10) / 20]) })
   }
 
   // ---- 荷物
@@ -614,7 +738,8 @@ export function createView3D(canvas, { course, cargo, n, me }) {
   const dummy = new THREE.Object3D(), tmpCol = new THREE.Color()
   for (let i = 0; i < MAXP; i++) pmesh.setColorAt(i, tmpCol.set(0xffffff))
   let snow = null
-  if (course.theme === 'snow') {
+  const hasSnow = (course.regions || [{ theme: course.theme }]).some(r => r.theme === 'snow')
+  if (hasSnow) {
     const N = 500, pos = new Float32Array(N * 3)
     for (let i = 0; i < N; i++) { pos[i * 3] = Math.random() * 16 - 8; pos[i * 3 + 1] = Math.random() * 9; pos[i * 3 + 2] = Math.random() * 16 - 8 }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
@@ -627,8 +752,10 @@ export function createView3D(canvas, { course, cargo, n, me }) {
   const cam = { x: course.start.x * S, z: course.start.y * S, zoom: 1, far: false, tilt: 36, ax: 0, az: -1 }
   let aspect = 1
   const target = new THREE.Vector3()
+  let snapCam = false
   function placeCamera(px, pz, dirx, dirz, dt) {
-    const k = 1 - Math.pow(0.002, dt)
+    const k = snapCam ? 1 : 1 - Math.pow(0.002, dt)
+    snapCam = false
     cam.x += (px - cam.x) * k; cam.z += (pz - cam.z) * k
     cam.zoom += ((cam.far ? 1.4 : 1) - cam.zoom) * k
     // 手前（南）へ進む区間ほど高い所から見下ろす
@@ -715,7 +842,8 @@ export function createView3D(canvas, { course, cargo, n, me }) {
       }
     },
     // 1フレーム分: p={x,y,a,gt} 荷物、g=サーバーの view
-    frame({ p, g, now, dt, walk, speed, doneAt }) {
+    respawned() { snapCam = true },
+    frame({ p, g, now, dt, walk, speed, doneAt, fallAt }) {
       fpsLog.push(dt); if (fpsLog.length > 90) fpsLog.shift()
       if (now > lastTierCheck && fpsLog.length >= 60) {
         lastTierCheck = now + 2500
@@ -728,7 +856,7 @@ export function createView3D(canvas, { course, cargo, n, me }) {
       cargoGroup.position.set(cx, 0, cz)
       cargoGroup.rotation.y = -p.a
       let lift = 0
-      if (g.done === 'fall' && doneAt) { const e = (now - doneAt) / 1000; lift = -Math.min(3, e * e * 4); cargoInner.rotation.z = Math.min(0.6, e * 0.8) }
+      if (g.dr && fallAt) { const e = (now - fallAt) / 1000; lift = -Math.min(3, e * e * 4); cargoInner.rotation.z = Math.min(0.6, e * 0.8) }
       else if (g.done === 'goal' && doneAt) { const e = (now - doneAt) / 1000; lift = Math.abs(Math.sin(e * 6)) * 0.18 * Math.max(0, 1 - e) }
       else if (g.done === 'broken' && doneAt) { const e = (now - doneAt) / 1000; cargoInner.scale.set(1 + e * 0.15, Math.max(0.35, 1 - e * 0.6), 1 + e * 0.15) }
       else { cargoInner.rotation.z = 0; cargoInner.scale.set(1, 1, 1) }
@@ -742,7 +870,7 @@ export function createView3D(canvas, { course, cargo, n, me }) {
         f.rotation.y = -ph - Math.PI / 2
       }
       center.position.set(cx, cargoTop + 0.02 + cargoGroup.position.y, cz)
-      center.visible = g.done !== 'fall'
+      center.visible = !g.dr
       // 運び手
       const c = Math.cos(p.a), s = Math.sin(p.a)
       const hw = cargo.w / 2, hh = cargo.h / 2
@@ -764,7 +892,7 @@ export function createView3D(canvas, { course, cargo, n, me }) {
         const on = h[3] === 1
         const ux = h[1], uy = h[2], um = Math.hypot(ux, uy)
         const jump = g.done === 'goal' ? Math.abs(Math.sin(hop + i)) * 0.4 : 0
-        const fallDrop = g.done === 'fall' ? cargoGroup.position.y * 0.3 : 0
+        const fallDrop = g.dr ? cargoGroup.position.y * 0.15 : 0
         ch.g.position.set(wx, jump + fallDrop, wz)
         // 体は荷物の方を向く（持っているので）。押している向きに少し傾ける
         const yaw = Math.atan2(hx - wx, hz - wz)
@@ -850,6 +978,45 @@ export function createView3D(canvas, { course, cargo, n, me }) {
         }
       }
       for (const b of belts) b.t.offset.x = -(t * b.speed) % 1
+      // ロングコースの仕掛け
+      const gt = p.gt || 0
+      for (const q of spinners) q.g.rotation.y = -spinnerBox(q.sp, gt).a
+      const gs = g.gs || ''
+      gates.forEach((q, i) => { const closed = gs[i] === '1'; q.k += ((closed ? 1 : 0) - q.k) * Math.min(1, dt * 5); q.move(closed, q.k, now) })
+      for (const q of drops) {
+        const st = dropState(q.d, gt)
+        const warn = st.until < q.d.warn ? 1 - st.until / q.d.warn : 0
+        q.shadow.material.opacity = warn * 0.45; q.shadow.scale.setScalar(0.5 + warn * 0.5)
+        q.ring.material.opacity = warn > 0 ? 0.5 + Math.sin(now / 90) * 0.4 : 0
+        if (st.until < 0.6) { q.box.visible = true; q.box.position.set(q.d.x * S, 0.3 + (st.until / 0.6) ** 2 * 6, q.d.y * S); q.box.rotation.set(0, st.until * 3, 0) }
+        else if (st.since < 1.1) { q.box.visible = true; const e = st.since; q.box.position.set(q.d.x * S + e * 0.9, 0.3 + Math.abs(Math.sin(e * 6)) * 0.35 * (1 - e) - Math.max(0, e - 0.7) * 1.5, q.d.y * S); q.box.rotation.set(0, 0, -e * 2) }
+        else q.box.visible = false
+      }
+      for (const q of rafts) { const r = moverAt(q.pf, gt); q.g.position.set(r.x * S, Math.sin(now / 500) * 0.02, r.y * S) }
+      const cr = g.cr || ''
+      planks.forEach((q, i) => {
+        const st = cr[i] || '0'
+        if (st !== q.st) { q.st = st; q.t = 0 }
+        q.t += dt
+        if (st === '0') { q.m.visible = true; q.m.position.copy(q.base); q.m.rotation.set(0, 0, 0) }
+        else if (st === '1') { q.m.visible = true; q.m.position.set(q.base.x + (Math.random() - 0.5) * 0.03, q.base.y, q.base.z + (Math.random() - 0.5) * 0.03); q.m.material.color.set(0xa8865a) }
+        else { q.m.position.y = q.base.y - q.t * q.t * 6; q.m.rotation.x = q.t * 2; q.m.visible = q.t < 1 }
+        if (st === '0') q.m.material.color.set(0xc49a64)
+      })
+      cpFlags.forEach((fl, i) => { for (const f of fl) f.material.color.set(i <= g.cp ? 0x1f9a5c : 0xffc83a) })
+      for (const f of fans) f.blades.rotation.y += dt * (2 + windPower(f.z, gt) * 22)
+      for (const sk of streaks) {
+        const k = windPower(sk.z, gt)
+        sk.im.material.opacity = k * 0.7
+        const [zx, zy, zw, zh] = sk.z.r
+        sk.seed.forEach(([a, b, sp], i) => {
+          const u = (a + t * sp * (0.5 + k)) % 1
+          dummy.position.set((zx + u * zw) * S, 0.3 + b * 0.8, (zy + b * zh) * S); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix()
+          sk.im.setMatrixAt(i, dummy.matrix)
+        })
+        sk.im.instanceMatrix.needsUpdate = true
+      }
+      updateChunks(p.y)
       scene.traverse(o => { if (o.userData.flag) o.rotation.y = Math.sin(t * 3 + o.position.x) * 0.4 })
       // 案内の矢印
       const np = nextPathPoint(p.x, p.y)
@@ -877,6 +1044,7 @@ export function createView3D(canvas, { course, cargo, n, me }) {
       }
       pmesh.count = k
       pmesh.instanceMatrix.needsUpdate = true; if (pmesh.instanceColor) pmesh.instanceColor.needsUpdate = true
+      if (snow) snow.visible = tier > 0 && themeAt(p.y) === 'snow'
       if (snow && snow.visible) {
         const arr = snow.geometry.attributes.position.array
         for (let i = 0; i < arr.length; i += 3) {

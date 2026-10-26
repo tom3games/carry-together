@@ -186,6 +186,9 @@ details summary::-webkit-details-marker { display: none; }
 .banner[data-kind="win"] b { color: var(--green); }
 .banner[data-kind="win"], .banner[data-kind="lose"], .banner[data-kind="seeno"], .banner[data-kind="cd"] { animation: popin .35s cubic-bezier(.2, 1.6, .4, 1); }
 .banner[data-kind="seeno"] { background: var(--yellow); }
+.banner[data-kind="cp"] { background: var(--yellow); animation: popin .35s cubic-bezier(.2, 1.6, .4, 1); }
+.banner[data-kind="cp"] b { color: var(--ink); font-size: 34px; }
+.banner[data-kind="lose"] span { white-space: normal; font-size: 13px; }
 .banner[data-kind="seeno"] b { color: var(--ink); font-size: 40px; }
 @keyframes popin { from { transform: translate(-50%, -50%) scale(.4); } to { transform: translate(-50%, -50%) scale(1); } }
 

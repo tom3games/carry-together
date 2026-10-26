@@ -1,6 +1,6 @@
 // ゲーム中の描画と操作。render(state, { send }) は状態が届くたびに呼ばれる。state.game はサーバーの view(自分)。
 // 画面は届いた位置を少し遅らせて補間し、滑らかに見せるだけ。動きの計算はサーバーがする。
-import { COURSES, CARGOS, EMOTES, handleOffsets, handleLabel, moverAt, PLAYER_COLORS } from './stages.js'
+import { COURSES, CARGOS, EMOTES, handleOffsets, handleLabel, moverAt, spinnerBox, dropState, windPower, PLAYER_COLORS } from './stages.js'
 import * as sfx from './sound.js'
 import { createView3D } from './view3d.js'
 
@@ -57,6 +57,7 @@ function build(state, send) {
     course, cargo, n: g.n,
     offs: handleOffsets(cargo, g.n),
     snaps: [], last: g, cam: null, shake: 0, bumpSeen: g.bump, cdSeen: g.cd, mhSeen: g.mh, emSeen: new Set(), doneSeen: g.done,
+    flSeen: g.fl || 0, cpsSeen: g.cps || 0, drSeen: g.dr || 0, fallAt: null, cpAt: 0,
     stick: [0, 0], keys: new Set(), sentAt: 0, sent: [0, 0], raf: 0, names: new Map(),
     parts: [], pops: [], walk: 0, lastP: null, lastFrame: performance.now(), doneAt: null, emAt: 0, flakes: null, tags: []
   }
@@ -97,7 +98,7 @@ function build(state, send) {
 }
 
 // 3D の床に貼る絵（2D の描き方をそのまま使う）
-function paintFloor(ctx, course) {
+export function paintFloor(ctx, course) {
   drawFloor(ctx, course)
   for (const d of course.deco || []) drawDeco(ctx, d, course)
   for (const z of course.zones || []) drawZone(ctx, z, 0)
@@ -189,6 +190,10 @@ export function render(state, { send }) {
   if (!ui || ui.round !== state.round || !$('#g-cv')) { teardown(); build(state, send) }
   ui.last = g
   ui.names = new Map(state.players.map(p => [p.id, p.name]))
+  // 穴に落ちた / チェックポイントに戻った / チェックポイントを通った
+  if ((g.fl || 0) !== ui.flSeen) { ui.flSeen = g.fl; ui.fallAt = performance.now(); sfx.fall(); pop('ドボン！', '#5ad1ff') }
+  if ((g.dr || 0) !== ui.drSeen) { ui.drSeen = g.dr; if (!g.dr) { ui.snaps = []; ui.cam = null; ui.lastP = null; if (ui.v3) ui.v3.respawned() } }
+  if ((g.cps || 0) !== ui.cpsSeen) { ui.cpsSeen = g.cps; ui.cpAt = performance.now(); sfx.checkpoint() }
   ui.snaps.push({ t: performance.now(), x: g.x, y: g.y, a: g.a, gt: g.t })
   if (ui.snaps.length > 12) ui.snaps.shift()
   if (g.bump !== ui.bumpSeen) {
@@ -227,7 +232,7 @@ function teardown() {
 
 function updateHud(state) {
   const g = ui.last
-  $('#g-time').textContent = `${g.time}秒`
+  $('#g-time').textContent = g.time >= 100 ? `${Math.floor(g.time / 60)}:${String(g.time % 60).padStart(2, '0')}` : `${g.time}秒`
   $('#g-timeBox').dataset.low = g.time <= 20 ? '1' : '0'
   const ratio = g.hp / ui.cargo.hp
   $('#g-hp').style.width = `${Math.max(0, ratio * 100)}%`
@@ -248,6 +253,8 @@ function updateBanner() {
   let kind = '', html = ''
   if (g.cd > 0) { kind = 'cd'; html = `<b>${g.cd}</b><span>あなたは「${handleLabel(ui.cargo, ui.offs[g.me] || [0, 0])}」を持つ</span>` }
   else if (g.done) { kind = g.done === 'goal' ? 'win' : 'lose'; html = `<b>${DONE_TEXT[g.done]}</b>` }
+  else if (g.dr) { kind = 'lose'; html = `<b>落ちた！</b><span>前のチェックポイントからやり直し（耐久と時間が減る）</span>` }
+  else if (ui.cpAt && performance.now() - ui.cpAt < 1800 && g.cp >= 0) { const c = (ui.course.checkpoints || [])[g.cp]; kind = 'cp'; html = `<b>チェックポイント</b><span>${c && c.bonus ? `+${c.bonus}秒　` : ''}落ちてもここから</span>` }
   else if (g.pull) { kind = 'warn'; html = '<span>引っぱりすぎ！ 裂ける</span>' }
   else if (ui.seeno && performance.now() - ui.seeno < 1100) { kind = 'seeno'; html = '<b>せーの！</b>' }
   const b = $('#g-banner')
@@ -325,7 +332,7 @@ function frame() {
     o.clearRect(0, 0, W, H)
     if (ui.v3) {
       ui.v3.setSize(W, H)
-      const r = ui.v3.frame({ p, g: ui.last, now, dt: Math.max(dt, 1 / 240), walk: ui.walk, speed: ui.speed || 0, doneAt: ui.doneAt })
+      const r = ui.v3.frame({ p, g: ui.last, now, dt: Math.max(dt, 1 / 240), walk: ui.walk, speed: ui.speed || 0, doneAt: ui.doneAt, fallAt: ui.fallAt })
       placeTags(r.labels, now)
       if (ui.v3.knocked !== (ui.knockSeen || 0)) { ui.knockSeen = ui.v3.knocked; sfx.knock() }
       placePop(r.cargoScreen)
@@ -426,17 +433,20 @@ function draw(ctx, W, H, dpr, p, now) {
   ctx.fillRect(0, 0, W, H)
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * (W / 2 - cx * scale + sx), dpr * (H / 2 - cy * scale + sy))
 
+  ui.gt = gt
   drawFloor(ctx, course)
   for (const d of course.deco || []) drawDeco(ctx, d, course)
   for (const z of course.zones || []) drawZone(ctx, z, now)
   drawGoal(ctx, course)
-  for (const pit of course.pits) drawPit(ctx, pit, course.theme)
+  for (const pit of course.pits) drawPit(ctx, pit, themeAt(course, pit[1] + pit[3] / 2))
+  drawFloorHazards(ctx, course, gt, now)
   for (const m of course.movers || []) if (m.kind !== 'person') drawMover(ctx, m, moverAt(m, gt))
-  for (const w of course.walls) drawWall(ctx, w, course.theme)
+  for (const w of course.walls) drawWall(ctx, w, themeAt(course, w[1] + w[3] / 2))
+  drawUpperHazards(ctx, course, gt, now)
   drawParts(ctx, 'dust')
   // 落ちたときは穴へ吸い込まれるように小さくする
   let k = 1
-  if (ui.last.done === 'fall' && ui.doneAt) k = Math.max(0.15, 1 - (now - ui.doneAt) / 900)
+  if (ui.last.dr && ui.fallAt) k = Math.max(0.15, 1 - (now - ui.fallAt) / 900)
   drawCargo(ctx, cargo, p, k)
   drawHandles(ctx, cargo, p, scale, now)
   for (const m of course.movers || []) if (m.kind === 'person') drawMover(ctx, m, moverAt(m, gt))
@@ -457,40 +467,52 @@ const FLOOR = {
   factory: ['#8d9196', 'rgba(30,35,40,.22)'],
   apartment: ['#d9cdb8', 'rgba(90,75,55,.2)']
 }
+// その高さ（y）の見た目のテーマ（長いコースは途中で街並みが変わる）
+export function themeAt(course, y) {
+  for (const r of course.regions || []) if (y >= r.y0 && y <= r.y1) return r.theme
+  return course.theme
+}
+
 function drawFloor(ctx, course) {
   const [CW, CH] = course.size
-  const [base, line] = FLOOR[course.theme] || FLOOR.wood
-  ctx.fillStyle = base
-  ctx.fillRect(0, 0, CW, CH)
-  ctx.strokeStyle = line
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  if (course.theme === 'wood') {
-    // 板の目
-    for (let y = 0; y < CH; y += 46) {
-      ctx.moveTo(0, y); ctx.lineTo(CW, y)
-      const off = (y / 46) % 2 ? 0 : 90
-      for (let x = off; x < CW; x += 180) { ctx.moveTo(x, y); ctx.lineTo(x, y + 46) }
+  const regions = course.regions && course.regions.length ? course.regions : [{ y0: 0, y1: CH, theme: course.theme }]
+  for (const r of regions) {
+    const [base, line] = FLOOR[r.theme] || FLOOR.wood
+    const y0 = r.y0, y1 = r.y1
+    ctx.fillStyle = base
+    ctx.fillRect(0, y0, CW, y1 - y0)
+    ctx.strokeStyle = line; ctx.fillStyle = line
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    if (r.theme === 'wood') {
+      // 板の目
+      for (let y = Math.ceil(y0 / 46) * 46; y < y1; y += 46) {
+        ctx.moveTo(0, y); ctx.lineTo(CW, y)
+        const off = (y / 46) % 2 ? 0 : 90
+        for (let x = off; x < CW; x += 180) { ctx.moveTo(x, y); ctx.lineTo(x, Math.min(y1, y + 46)) }
+      }
+      ctx.stroke()
+    } else if (r.theme === 'snow') {
+      // 雪のでこぼこ（決まった並びの点）
+      const n = Math.round((CW * (y1 - y0)) / 2600)
+      for (let i = 0; i < n; i++) { const x = (i * 397) % CW, y = y0 + ((i * 733) % Math.max(1, y1 - y0)); ctx.moveTo(x + 4, y); ctx.arc(x, y, 3 + (i % 3), 0, Math.PI * 2) }
+      ctx.fill()
+    } else {
+      // 石畳・タイル・コンクリートの目地
+      const step = r.theme === 'street' ? 60 : r.theme === 'factory' ? 120 : 50
+      for (let y = Math.ceil(y0 / step) * step; y < y1; y += step) { ctx.moveTo(0, y); ctx.lineTo(CW, y) }
+      for (let x = 0; x < CW; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1) }
+      ctx.stroke()
     }
-  } else if (course.theme === 'snow') {
-    // 雪のでこぼこ（決まった並びの点）
-    ctx.fillStyle = line
-    for (let i = 0; i < 900; i++) { const x = (i * 397) % CW, y = (i * 733) % CH; ctx.moveTo(x + 4, y); ctx.arc(x, y, 3 + (i % 3), 0, Math.PI * 2) }
-    ctx.fill()
-  } else {
-    // 石畳・タイル・コンクリートの目地
-    const step = course.theme === 'street' ? 60 : course.theme === 'factory' ? 120 : 50
-    for (let y = 0; y < CH; y += step) { ctx.moveTo(0, y); ctx.lineTo(CW, y) }
-    for (let x = 0; x < CW; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, CH) }
   }
-  ctx.stroke()
   // スタートの印
   const s = course.start
-  ctx.strokeStyle = course.theme === 'snow' ? 'rgba(40,60,90,.35)' : 'rgba(255,255,255,.4)'
+  const st = themeAt(course, s.y)
+  ctx.strokeStyle = st === 'snow' ? 'rgba(40,60,90,.35)' : 'rgba(255,255,255,.4)'
   ctx.setLineDash([10, 8]); ctx.lineWidth = 3
   ctx.strokeRect(s.x - 100, s.y - 100, 200, 200)
   ctx.setLineDash([])
-  ctx.fillStyle = course.theme === 'snow' ? 'rgba(40,60,90,.5)' : 'rgba(255,255,255,.6)'
+  ctx.fillStyle = st === 'snow' ? 'rgba(40,60,90,.5)' : 'rgba(255,255,255,.6)'
   ctx.font = '700 22px system-ui, sans-serif'; ctx.textAlign = 'center'
   ctx.fillText('スタート', s.x, s.y + 128)
 }
@@ -521,6 +543,25 @@ function drawDeco(ctx, [type, x, y, w, h]) {
     if (type === 'dock') { ctx.fillStyle = '#ffcc00'; for (let i = 0; i < w; i += 80) ctx.fillRect(x + i, y + h - 12, 40, 12) }
   } else if (type === 'door') {
     ctx.fillStyle = '#7a4a2a'; ctx.fillRect(x, y, w, h)
+  } else if (type === 'house' || type === 'room') {
+    ctx.fillStyle = type === 'house' ? '#e8c99a' : '#efe2c8'; ctx.fillRect(x, y, w, h)
+  } else if (type === 'cp') {
+    // チェックポイントの帯（市松の線と文字）
+    for (let i = 0; i < w; i += 40) { ctx.fillStyle = (i / 40) % 2 ? '#ffffff' : '#2a2119'; ctx.fillRect(x + i, y + h / 2 - 10, 40, 10); ctx.fillStyle = (i / 40) % 2 ? '#2a2119' : '#ffffff'; ctx.fillRect(x + i, y + h / 2, 40, 10) }
+    ctx.fillStyle = 'rgba(42,33,25,.45)'; ctx.font = '800 26px system-ui, sans-serif'; ctx.textAlign = 'center'
+    ctx.fillText('チェックポイント', x + w / 2, y + h / 2 - 26)
+  } else if (type === 'rail') {
+    // 線路（枕木とレール）
+    ctx.fillStyle = '#8a7d6b'; ctx.fillRect(x, y, w, h)
+    ctx.fillStyle = '#5b4a36'; for (let i = 0; i < w; i += 46) ctx.fillRect(x + i, y + 14, 22, h - 28)
+    ctx.fillStyle = '#c9ced6'; ctx.fillRect(x, y + h * 0.3, w, 8); ctx.fillRect(x, y + h * 0.65, w, 8)
+  } else if (type === 'fans') {
+    ctx.fillStyle = '#5d636c'; ctx.fillRect(x, y, w, h)
+    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 4
+    for (let i = 40; i < h; i += 100) { ctx.beginPath(); ctx.arc(x + w, y + i, 34, -Math.PI / 2, Math.PI / 2); ctx.stroke() }
+  } else if (type === 'sign') {
+    ctx.fillStyle = '#ffcc00'; ctx.fillRect(x, y, w, h)
+    ctx.fillStyle = '#1b1b1b'; ctx.font = '800 22px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('工事中', x + w / 2, y + h - 6)
   }
 }
 
@@ -540,6 +581,14 @@ function drawZone(ctx, z, now) {
       ctx.fillStyle = 'rgba(0,0,0,.16)'; ctx.fillRect(x, yy + 26, w, 8)
       ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(x, yy, w, 4)
     }
+  } else if (z.type === 'wind') {
+    // 風: 強さに合わせて流れる筋が濃くなる
+    const k = now ? windPower(z, (ui && ui.gt) || 0) : 0.5
+    ctx.strokeStyle = `rgba(200,235,255,${0.15 + k * 0.6})`; ctx.lineWidth = 5; ctx.lineCap = 'round'
+    const off = ((now / 1000) * 300 * Math.max(0.2, k)) % 120
+    ctx.beginPath()
+    for (let yy = y + 30; yy < y + h; yy += 70) for (let xx = x - 120 + off + ((yy / 70) % 2) * 60; xx < x + w; xx += 120) { ctx.moveTo(xx, yy); ctx.lineTo(xx + 50 * Math.sign(z.vx || 1), yy) }
+    ctx.stroke()
   } else if (z.type === 'belt') {
     const slope = z.look === 'slope'
     if (!slope) { ctx.fillStyle = '#2b2f35'; ctx.fillRect(x, y, w, h) }
@@ -561,6 +610,84 @@ function drawZone(ctx, z, now) {
     if (!slope) { ctx.fillStyle = '#ffcc00'; ctx.fillRect(x, y, w, 5); ctx.fillRect(x, y + h - 5, w, 5) }
   }
   ctx.restore()
+}
+
+// 床の高さの仕掛け: 動く床（いかだ）、崩れる床、落ちてくる荷物の影、チェックポイントの旗
+function drawFloorHazards(ctx, course, gt, now) {
+  for (const pf of course.platforms || []) {
+    const p = moverAt(pf, gt)
+    ctx.fillStyle = '#9b6a3c'; ctx.fillRect(p.x - pf.w / 2, p.y - pf.h / 2, pf.w, pf.h)
+    ctx.strokeStyle = '#6b4524'; ctx.lineWidth = 3
+    ctx.beginPath(); for (let i = 1; i < 5; i++) { const yy = p.y - pf.h / 2 + (pf.h * i) / 5; ctx.moveTo(p.x - pf.w / 2, yy); ctx.lineTo(p.x + pf.w / 2, yy) } ctx.stroke()
+    ctx.strokeRect(p.x - pf.w / 2, p.y - pf.h / 2, pf.w, pf.h)
+  }
+  const cr = (ui.last && ui.last.cr) || ''
+  ;(course.crumbles || []).forEach((q, i) => {
+    const st = cr[i] || '0'
+    if (st === '2') return
+    const [x, y, w, h] = q.r
+    const j = st === '1' ? (Math.random() - 0.5) * 4 : 0
+    ctx.fillStyle = st === '1' ? '#a8865a' : '#c49a64'; ctx.fillRect(x + 3 + j, y + 3, w - 6, h - 6)
+    ctx.strokeStyle = '#6b4524'; ctx.lineWidth = 2; ctx.strokeRect(x + 3 + j, y + 3, w - 6, h - 6)
+    if (st === '1') { ctx.beginPath(); ctx.moveTo(x + 20, y + 20); ctx.lineTo(x + 50, y + 55); ctx.lineTo(x + 40, y + 80); ctx.stroke() }
+  })
+  for (const d of course.drops || []) {
+    const st = dropState(d, gt)
+    if (st.until < d.warn) { // 影が濃く大きくなっていく
+      const k = 1 - st.until / d.warn
+      ctx.fillStyle = `rgba(0,0,0,${0.15 + k * 0.4})`
+      ctx.beginPath(); ctx.ellipse(d.x, d.y, d.r * (0.5 + k * 0.5), d.r * (0.5 + k * 0.5), 0, 0, Math.PI * 2); ctx.fill()
+      ctx.strokeStyle = '#d3312c'; ctx.lineWidth = 4; ctx.setLineDash([12, 8]); ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([])
+    }
+    if (st.since < 0.8) { ctx.fillStyle = '#b8864e'; ctx.fillRect(d.x - 40 + st.since * 60, d.y - 40, 80, 80); ctx.strokeStyle = '#6b4524'; ctx.strokeRect(d.x - 40 + st.since * 60, d.y - 40, 80, 80) }
+  }
+  const cpi = ui.last ? ui.last.cp : -1
+  ;(course.checkpoints || []).forEach((c, i) => {
+    const [x, y, w, h] = c.r
+    for (const fx of [x + 20, x + w - 20]) {
+      ctx.fillStyle = '#2a2119'; ctx.fillRect(fx - 3, y + h / 2 - 60, 6, 60)
+      ctx.fillStyle = i <= cpi ? '#1f9a5c' : '#ffc83a'
+      ctx.beginPath(); ctx.moveTo(fx + 3, y + h / 2 - 60); ctx.lineTo(fx + 46, y + h / 2 - 48); ctx.lineTo(fx + 3, y + h / 2 - 36); ctx.fill()
+    }
+  })
+}
+
+// 壁より上の仕掛け: 回るバー、開け閉めの壁、落ちてくる荷物
+function drawUpperHazards(ctx, course, gt, now) {
+  for (const sp of course.spinners || []) {
+    const b = spinnerBox(sp, gt)
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a)
+    ctx.fillStyle = '#d3312c'; ctx.fillRect(-b.hw, -b.hh, b.hw * 2, b.hh * 2)
+    ctx.fillStyle = '#ffffff'; for (let i = -b.hw; i < b.hw; i += 60) ctx.fillRect(i, -b.hh, 30, b.hh * 2)
+    ctx.strokeStyle = '#2a2119'; ctx.lineWidth = 3; ctx.strokeRect(-b.hw, -b.hh, b.hw * 2, b.hh * 2)
+    ctx.restore()
+    ctx.fillStyle = '#3a3f47'; ctx.beginPath(); ctx.arc(b.x, b.y, 26, 0, Math.PI * 2); ctx.fill()
+  }
+  const gs = (ui.last && ui.last.gs) || ''
+  ;(course.gates || []).forEach((g, i) => {
+    const [x, y, w, h] = g.r
+    const closed = gs[i] === '1'
+    if (closed) {
+      ctx.fillStyle = g.kind === 'crossing' ? '#ffffff' : '#7a828c'; ctx.fillRect(x, y, w, h)
+      if (g.kind === 'crossing') { ctx.fillStyle = '#d3312c'; for (let k = 0; k < w; k += 60) ctx.fillRect(x + k, y, 30, h) }
+      else { ctx.strokeStyle = '#4b525b'; ctx.lineWidth = 2; ctx.beginPath(); for (let k = 0; k < w; k += 16) { ctx.moveTo(x + k, y); ctx.lineTo(x + k, y + h) } ctx.stroke() }
+    } else {
+      ctx.strokeStyle = 'rgba(42,33,25,.35)'; ctx.setLineDash([10, 10]); ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h); ctx.setLineDash([])
+    }
+    // 閉まる前に光る
+    if (g.kind === 'crossing') {
+      const on = closed && Math.floor(now / 300) % 2
+      for (const lx of [x + 10, x + w - 10]) { ctx.fillStyle = on ? '#ff3b30' : '#5a1a18'; ctx.beginPath(); ctx.arc(lx, y + h / 2, 12, 0, Math.PI * 2); ctx.fill() }
+    }
+  })
+  for (const d of course.drops || []) {
+    const st = dropState(d, gt)
+    if (st.until < 0.6) { // 上から落ちてくる（画面では上にずらして大きめに描く）
+      const k = st.until / 0.6
+      ctx.fillStyle = '#b8864e'; ctx.fillRect(d.x - 40 - k * 20, d.y - 40 - k * 260, 80 + k * 40, 80 + k * 40)
+      ctx.strokeStyle = '#6b4524'; ctx.lineWidth = 3; ctx.strokeRect(d.x - 40 - k * 20, d.y - 40 - k * 260, 80 + k * 40, 80 + k * 40)
+    }
+  }
 }
 
 function drawWall(ctx, [x, y, w, h], theme) {
@@ -654,6 +781,11 @@ function drawMover(ctx, m, p) {
     ctx.beginPath(); for (let k = -h; k < 60; k += 26) { ctx.moveTo(face * (w / 2 - 60 + k), -h / 2); ctx.lineTo(face * (w / 2 - 60 + k + h), h / 2) } ctx.stroke()
     ctx.restore()
     ctx.strokeStyle = '#3d434b'; ctx.lineWidth = 4; ctx.strokeRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4)
+  } else if (m.kind === 'train') {
+    ctx.scale(dir, 1)
+    rr(ctx, -w / 2, -h / 2, w, h, 20, m.color)
+    ctx.fillStyle = '#fff6d8'; for (let i = -w / 2 + 40; i < w / 2 - 40; i += 70) ctx.fillRect(i, -h / 2 + 12, 44, h - 24)
+    ctx.fillStyle = '#ffe9a0'; ctx.fillRect(w / 2 - 10, -h / 2 + 12, 10, 20); ctx.fillRect(w / 2 - 10, h / 2 - 32, 10, 20)
   } else if (m.kind === 'fork') {
     ctx.scale(dir, 1)
     rr(ctx, -w / 2, -h / 2, w - 34, h, 10, m.color)
@@ -915,11 +1047,15 @@ function drawSnowfall(ctx, W, H, now) {
 
 function drawMinimap(ctx, W, H, course, p, gt) {
   const [CW, CH] = course.size
-  const mh = Math.min(130, H * 0.3), mw = (mh * CW) / CH
+  // 長いコースは、荷物のまわり（約3200）だけを映す
+  const span = Math.min(CH, 3200)
+  const top = Math.max(0, Math.min(CH - span, p.y - span * 0.62))
+  const mh = Math.min(130, H * 0.3), mw = (mh * CW) / span
   const x0 = W - mw - 10, y0 = 94 // 上の HUD と道のりの帯の下
-  const k = mh / CH
+  const k = mh / span
   ctx.fillStyle = 'rgba(14,15,19,.72)'
   ctx.fillRect(x0 - 3, y0 - 3, mw + 6, mh + 6)
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, mw, mh); ctx.clip(); ctx.translate(0, -top * k)
   ctx.fillStyle = 'rgba(180,138,90,.55)'; ctx.fillRect(x0, y0, mw, mh)
   for (const z of course.zones || []) { ctx.fillStyle = z.type === 'ice' ? 'rgba(150,215,245,.8)' : z.type === 'stairs' ? 'rgba(220,200,160,.8)' : 'rgba(255,204,0,.45)'; ctx.fillRect(x0 + z.r[0] * k, y0 + z.r[1] * k, z.r[2] * k, z.r[3] * k) }
   for (const d of course.deco || []) if (d[0] === 'road') { ctx.fillStyle = 'rgba(40,42,48,.85)'; ctx.fillRect(x0 + d[1] * k, y0 + d[2] * k, d[3] * k, d[4] * k) }
@@ -928,8 +1064,10 @@ function drawMinimap(ctx, W, H, course, p, gt) {
   ctx.fillStyle = '#2a2e37'; for (const q of course.walls) ctx.fillRect(x0 + q[0] * k, y0 + q[1] * k, Math.max(1, q[2] * k), Math.max(1, q[3] * k))
   ctx.fillStyle = '#ff6b6b'
   for (const m of course.movers || []) { const q = moverAt(m, gt); ctx.fillRect(x0 + (q.x - m.w / 2) * k, y0 + (q.y - m.h / 2) * k, Math.max(2, m.w * k), Math.max(2, m.h * k)) }
+  ctx.fillStyle = '#ffc83a'; for (const c of course.checkpoints || []) ctx.fillRect(x0 + c.r[0] * k, y0 + (c.r[1] + c.r[3] / 2) * k - 1, c.r[2] * k, 2)
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5
   ctx.beginPath(); ctx.arc(x0 + p.x * k, y0 + p.y * k, 4, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+  ctx.restore()
 }
 
 // ゴールが画面の外にあるとき、その向きを画面の縁に出す
